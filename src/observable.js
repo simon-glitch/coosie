@@ -36,9 +36,9 @@ class Observable{
     /** The observables that are subscribed to this observable. @type {Observable[]} */
     subscribers = [];
     /** Symbol map for the observables that this observable is subscribed to. @type {Map<Symbol, Observable>} */
-    s_publishers = {};
+    s_publishers = new Map();
     /** Symbol map for the observables that are subscribed to this observable. @type {Map<Symbol, Observable>} */
-    s_subscribers = {};
+    s_subscribers = new Map();
     /** Whether to construct `publisher_values` for `observable.calculate`. */
     fancy_calculate = false;
     /**
@@ -56,8 +56,8 @@ class Observable{
         this.calculate = calculate ?? this.calculate;
         this.publishers = [];
         this.subscribers = [];
-        this.s_publishers = {};
-        this.s_subscribers = {};
+        this.s_publishers = new Map();
+        this.s_subscribers = new Map();
         // You're welcome.
         const symbol = Symbol("observable.instance.symbol");
         Object.defineProperty(this, "symbol", {

@@ -15,4 +15,4 @@ btn.onclick = function(){
 
 eh.addq(".cookies", cookies);
 eh.addq(".dollars", dollars);
-
+eh.start();
