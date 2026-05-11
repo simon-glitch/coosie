@@ -202,7 +202,7 @@ class Observable{
         if(this.fancy_calculate){
             const o = new Map();
             this.s_publishers.forEach((obs, s) => {
-                o[s] = obs.value
+                o.set(s, obs.value);
             });
             this.value = this.calculate(o);
         }
@@ -223,7 +223,7 @@ class Observable{
             if(this.fancy_calculate){
                 const o = new Map();
                 this.s_publishers.forEach((obs, s) => {
-                    o[s] = obs.value
+                    o.set(s, obs.value);
                 });
                 this.value = this.calculate(o);
             }
