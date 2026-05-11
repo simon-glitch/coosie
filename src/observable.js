@@ -344,7 +344,7 @@ class Optimizer{
     frame_id = -1;
     /** Start / resume optimizing. */
     start(){
-        this.frame_id = setInterval(this.cycle.bind(this));
+        this.frame_id = setInterval(this.cycle.bind(this), this.mspf);
     }
     /** Stop / pause optimizing. */
     stop(){
@@ -394,12 +394,13 @@ class Elup{
             const obs = pair[1];
             el.innerHTML = obs.get();
         }
+        this?.onframe();
     }
     /** Interval ID for the handler. Don't touch. */
     frame_id = -1;
     /** Start / resume handling of element-observable links. */
     start(){
-        this.frame_id = setInterval(this.update.bind(this));
+        this.frame_id = setInterval(this.update.bind(this), this.mspf);
     }
     /** Stop / pause handling of element-observable links. */
     stop(){
