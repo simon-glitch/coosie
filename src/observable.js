@@ -189,8 +189,10 @@ class Observable{
     update(updateID){
         // recusrive pull
         this.lastID = updateID;
+        this.update_count++;
+        if(!this.calculate) return;
         for(const p of this.publishers){
-            if(p.calculate && p.mode === 0 && p.lastID !== updateID){
+            if(p.mode === 0 && p.lastID !== updateID){
                 p.update(updateID);
             }
         }
@@ -203,7 +205,6 @@ class Observable{
         const t0 = performance.now();
         this.value = this.calculate(o);
         this.time_taken += performance.now() - t0;
-        this.update_count++;
     }
     /**
      * Publish the value of this observable to its subscribers. This method should only be called for observables that are in publishing mode.
@@ -220,10 +221,10 @@ class Observable{
             const t0 = performance.now();
             this.value = this.calculate(o);
             this.time_taken += performance.now() - t0;
-            this.update_count++;
         }
         // then recursive push
         this.lastID = updateID;
+        this.update_count++;
         for(const p of this.subscribers){
             if(p.mode === 1 && p.lastID !== updateID){
                 p.publish(updateID);
