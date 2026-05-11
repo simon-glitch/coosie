@@ -89,10 +89,10 @@ class Observable{
         }
         for(const p of publishers){
             if(!this.s_publishers[p.symbol]){
-                this.s_publishers[p.symbol] = true;
+                this.s_publishers[p.symbol] = p;
                 this.publishers.push(p);
                 if(!p.s_subscribers[this.symbol]){
-                    p.s_subscribers[this.symbol] = true;
+                    p.s_subscribers[this.symbol] = this;
                     p.subscribers.push(this);
                 }
             }
@@ -111,10 +111,10 @@ class Observable{
         }
         for(const p of subscribers){
             if(!this.s_subscribers[p.symbol]){
-                this.s_subscribers[p.symbol] = true;
+                this.s_subscribers[p.symbol] = p;
                 this.subscribers.push(p);
                 if(!p.s_publishers[this.symbol]){
-                    p.s_publishers[this.symbol] = true;
+                    p.s_publishers[this.symbol] = this;
                     p.publishers.push(this);
                 }
             }
@@ -190,7 +190,7 @@ class Observable{
         // recusrive pull
         this.lastID = updateID;
         for(const p of this.publishers){
-            if(p.mode === 0 && p.lastID !== updateID){
+            if(p.calculate && p.mode === 0 && p.lastID !== updateID){
                 p.update(updateID);
             }
         }
@@ -211,15 +211,17 @@ class Observable{
      */
     publish(updateID){
         // update
-        const o = {};
-        if(this.fancy_calculate) for(const s in this.s_publishers){
-            o[s] = this.s_publishers[s].value;
+        if(this.calculate){
+            const o = {};
+            if(this.fancy_calculate) for(const s in this.s_publishers){
+                o[s] = this.s_publishers[s].value;
+            }
+            /** on my machine performance.now runs at 10 kHz */
+            const t0 = performance.now();
+            this.value = this.calculate(o);
+            this.time_taken += performance.now() - t0;
+            this.update_count++;
         }
-        /** on my machine performance.now runs at 10 kHz */
-        const t0 = performance.now();
-        this.value = this.calculate(o);
-        this.time_taken += performance.now() - t0;
-        this.update_count++;
         // then recursive push
         this.lastID = updateID;
         for(const p of this.subscribers){
