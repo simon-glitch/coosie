@@ -8,6 +8,17 @@
  */
 
 /**
+ * @typedef {Object} Observable_Options
+ * @property {string} [name] - custom name for this observable;
+ * @property {symbol} [symbol] - override for the symbol this observable should use; keep in mind, the constructor can generate a generic symbol automatially; the symbol is important and is used to recognize the observable;
+ * @property {(publisher_args: Map | Array | undefined) => any => any} calculate the function used to calculate the value of this observable;
+ * @property {symbol} [calculate_args] - indicates which arguments should be passed to observable.calculate; see `Observable.NONE` (`static NONE` in the code) and the symbols following it;
+ * @property {0 | 1} [mode] - the starting `mode` of this observable;
+ * @property {Observable[]} [publishers] - a list of publishers this observable should immediately subscribe to;
+ * @property {Observable[]} [subscribers] - a list of subscribers this observable should immediately accept;
+ */
+
+/**
  * This class implements a type of "subscriber model".
  * - Used for variables that are dependent on other variables. So a given observable should be a function of other variables, or it should be a "root" variable, meaning it does not depend on variables. Root observables / variables have setters that make sense.
  * - You can think of an observable / variable as being a subscriber to the variables it depends on.
@@ -17,11 +28,13 @@
  * - By the way, make sure to use subscribe and accept. **Do not** modify the subscribers and members of this class directly. The only member you can modfy safely is `observable.calculate`.
  */
 class Observable{
+    /** The string / display name of this observable. */
+    name = "";
     /** The number of times this observable has been updated during this cycle. */
     update_count = 0;
     /** The cumulated amount of time spent running the calculate method of this observable during this cycle. */
     time_taken = 0;
-    /** Only used in `Observer`. */
+    /** Only used in `observable`. */
     effective_cost = 0;
     /** The "mode" of this observable. `0` indicates subscribing mode (updates are pulled). `1` indicates publishing mode (updates are pushed). @type {0 | 1} */
     mode = 0;
@@ -39,31 +52,67 @@ class Observable{
     s_publishers = new Map();
     /** Symbol map for the observables that are subscribed to this observable. @type {Map<Symbol, Observable>} */
     s_subscribers = new Map();
-    /** Whether to construct `publisher_values` for `observable.calculate`. */
-    fancy_calculate = false;
+    /** Indicates no arg should be passed to `observable.calculate`. */
+    static NONE = Symbol("Observable.NONE");
+    /** Indicates a Map, mapping symbols to their observables, should be passed to `observable.calculate`. */
+    static MSO = Symbol("Observable.MSO");
+    /** Indicates a Map, mapping string names to their observables, should be passed to `observable.calculate`. */
+    static MNO = Symbol("Observable.MNO");
+    /** Indicates a Map, mapping symbols to the values of their respective observables, should be passed to `observable.calculate`. */
+    static MSV = Symbol("Observable.MSV");
+    /** Indicates a Map, mapping string names to the values of their respective observables, should be passed to `observable.calculate`. */
+    static MNV = Symbol("Observable.MNV");
+    /** Indicates an array, of observables, should be passed to `observable.calculate`. */
+    static AO = Symbol("Observable.AO");
+    /** Indicates an array, of the values of observable, should be passed to `observable.calculate`. */
+    static AV = Symbol("Observable.AV");
+    static VALID = new Set([
+        Observable.NONE,
+        Observable.MSO,
+        Observable.MNO,
+        Observable.MSV,
+        Observable.MNV,
+        Observable.AO,
+        Observable.AV,
+    ]);
+    /** What kinds of `publisher_args` to construct for `observable.calculate`. @type {Symbol} @default Observable.NONE */
+    calculate_args = Observable.NONE;
     /**
      * This constructor doesn't have many options, because you have to specify the publishers and subscribers of this node separately.
-     * @param {(publisher_values: Object) => any} [calculate] The "formula" for the variable this observable controls. This function is run every time this observable is updated, in order to ensure that the value of this observable is always up to date. External systems should be able to trust this value to be up to date.
+     * @param {Observable_Options | (publisher_args: Map | Array | undefined) => any} [options] See `Observable_Options` for more info. You can instead put the `calculate` function here (see `observable.calculate`).
      */
-    constructor(calculate){
+    constructor(options){
+        /** @type {Observable_Options} */
+        const o = (typeof options === "function") ? {calculate: options} : (options ?? {});
         /**
-         * @member {(publisher_values: Map<Symbol, any> | undefined) => any} calculate The function used to calculate the value of this observable. 
+         * @member {(publisher_args: Map | Array | undefined) => any} calculate The function used to calculate the value of this observable. 
          * - Feel free to modify this with external code if you want to.
-         * - The values in `publisher_values` are the direct values of those publishers, not the actual publishers.
-         * - `publisher_values` will only be given if `observable.fancy_calculate`
+         * - The values in `publisher_args` are the direct values of those publishers, not the actual publishers.
+         * - `publisher_args` will only be given if `observable.fancy_calculate`
          * - Note that `this` will be this observable, unless you bind the function or use an arrow function.
          */
-        this.calculate = calculate ?? this.calculate;
+        this.calculate = (typeof o.calculate === "function") ? o.calculate : this.calculate;
+        this.name = String(o?.name ?? this.name);
+        this.mode = Number(Boolean(o?.mode ?? this.mode));
         this.publishers = [];
         this.subscribers = [];
         this.s_publishers = new Map();
         this.s_subscribers = new Map();
         // You're welcome.
-        const symbol = Symbol("observable.instance.symbol");
+        const symbol = o?.symbol ?? Symbol("observable.instance.symbol");
         Object.defineProperty(this, "symbol", {
             get(){return symbol;},
             configurable: false,
         });
+        this.calculate_args = Observable.VALID.has(
+            options.calculate_args
+        ) ? options.calculate_args : Observable.NONE;
+        if(o.publishers){
+            this.subscribe(publishers);
+        }
+        if(o.subscribers){
+            this.accept(subscribers);
+        }
     }
     initialize(){
         this.subscribers = [];
@@ -73,6 +122,12 @@ class Observable{
         }
         for(const s of this.s_publishers.values()){
             this.publishers.push(s);
+        }
+        if(this.calculate_args === Observable.NONE){
+            this.proxy_calculate = this.calculate;
+        }
+        else if(Observable.VALID.has(this.calculate_args)){
+            this.proxy_calculate = this[this.calculate_args];
         }
     }
     /**
@@ -199,16 +254,7 @@ class Observable{
         // then update
         /** on my machine performance.now runs at 10 kHz */
         const t0 = performance.now();
-        if(this.fancy_calculate){
-            const o = new Map();
-            this.s_publishers.forEach((obs, s) => {
-                o.set(s, obs.value);
-            });
-            this.value = this.calculate(o);
-        }
-        else{
-            this.value = this.calculate();
-        }
+        this.value = this.proxy_calculate();
         this.time_taken += performance.now() - t0;
     }
     /**
@@ -241,12 +287,14 @@ class Observable{
             }
         }
     }
+    /** Used for external connections, like for getting the value of output variables. This causes a subscribing node to update its value. */
     get(){
         if(this.mode === 0){
             this.update({/* Look ma, I'm a UUID! */});
         }
         return this.value;
     }
+    /** Used for external connections, like for updating the base variables of the system. This causes a publishing node to publish its value. */
     set(value){
         if(this.calculate){
             throw new TypeError("Cannot set the value of an observable that has a calculate method, since that implies that this observable is not a root observable.");
@@ -256,10 +304,60 @@ class Observable{
             this.publish({/* Look ma, I'm a UUID! */});
         }
     }
+    /** This gets overwritten by observable.initialize. This function is used as a proxy to set up publisher_args before passing it so calculate. When observable.calculate_args = Observable.NONE, this method gets overwritten to be whatever calculate is. @type {(publisher_args: Map | Array | undefined) => any} */
+    proxy_calculate(){/* Placeholder. */}
+    [Observable.MSO](){
+        /** @type {Map<Symbol, Observable>} */
+        const o = new Map();
+        for(const [s, p] of this.s_publishers){
+            o.set(s, p);
+        }
+        return this.calculate(o);
+    }
+    [Observable.MNO](){
+        /** @type {Map<string, Observable>} */
+        const o = new Map();
+        for(const p of this.s_publishers.values()){
+            o.set(p.name, p);
+        }
+        return this.calculate(o);
+    }
+    [Observable.MSV](){
+        /** @type {Map<Symbol, any>} */
+        const o = new Map();
+        for(const [s, p] of this.s_publishers){
+            o.set(s, p.value);
+        }
+        return this.calculate(o);
+    }
+    [Observable.MNV](){
+        /** @type {Map<string, any>} */
+        const o = new Map();
+        for(const p of this.s_publishers.values()){
+            o.set(p.name, p.value);
+        }
+        return this.calculate(o);
+    }
+    [Observable.AO](){
+        /** @type {Observable[]} */
+        const o = [];
+        for(const p of this.s_publishers.values()){
+            o.push(p);
+        }
+        return this.calculate(o);
+    }
+    [Observable.AV](){
+        /** @type {any[]} */
+        const o = [];
+        for(const p of this.s_publishers.values()){
+            o.push(p);
+        }
+        return this.calculate(o);
+    }
 }
 
 /**
- * Class to optimize a graph / list of observers. The observers don't even all need to be connected. Isn't that cool? Yeah, it is really cool.
+ * Class to optimize a graph / list of observables. The observables don't even all need to be connected. Isn't that cool? Yeah, it is really cool.
  */
 class Optimizer{
     /**
@@ -278,7 +376,7 @@ class Optimizer{
         this.oncycle = undefined;
     }
     /**
-     * Used to end the current cycle, and optimize the observer graph.
+     * Used to end the current cycle, and optimize the observable graph.
      */
     cycle(){
         /** Handle any removed subscribers / publishers. My idea is handling them here is more efficient that splicing lists every time. */
@@ -323,7 +421,7 @@ class Optimizer{
         // in some cases, running this function a few times in a row might give more optimal results; however, I think funning it once every "frame" is fine;
         this.nodes.sort((a,b) => b.effective_cost - a.effective_cost);
         for(const node of this.nodes){
-            // unfortunately, this library is simple and only has one way of optimizing the graph, and that is changing the modes of observer nodes; forunately, this is a very useful optimization;
+            // unfortunately, this library is simple and only has one way of optimizing the graph, and that is changing the modes of observable nodes; forunately, this is a very useful optimization;
             // if subscribing node: is pull pressure > cost of upstream pushes? -> promote to publishing node;
             if(node.mode === 0 && node.effective_cost > node.publishers.reduce((a,b) => a + b.effective_cost, 0) && node.publishers.reduce((a,b) => a && b.mode === 1, true)){
                 node.mode = 1;
@@ -366,7 +464,7 @@ class Elup{
         this.onframe = undefined;
     }
     /**
-     * Link an element to an observer, which adds it to the list of elements managed by this handler.
+     * Link an element to an observable, which adds it to the list of elements managed by this handler.
      * @param {Element} el 
      * @param {Observable} obs 
      */
@@ -374,7 +472,7 @@ class Elup{
         this.links.push([el, obs]);
     }
     /**
-     * Link every element matching a query to an observer, which adds the elements to the list of elements managed by this handler.
+     * Link every element matching a query to an observable, which adds the elements to the list of elements managed by this handler.
      * @param {string} q the query, which must be a CSS selector;
      * @param {Observable} obs 
      */
