@@ -1,5 +1,5 @@
 /**
- * This library uses the GNU General Public License, version 2 (link: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html).
+ * This library uses the GNU General Public License, version 3 (link: https://www.gnu.org/licenses/gpl-3.0.html).
  */
 
 /**
@@ -85,7 +85,7 @@ class Observable{
         /** @type {Observable_Options} */
         const o = (typeof options === "function") ? {calculate: options} : (options ?? {});
         /**
-         * @member {(publisher_args: Map | Array | undefined) => any} calculate The function used to calculate the value of this observable. 
+         * @type {undefined | (publisher_args: Map | Array | undefined) => any} The function used to calculate the value of this observable. 
          * - Feel free to modify this with external code if you want to.
          * - The values in `publisher_args` are the direct values of those publishers, not the actual publishers.
          * - `publisher_args` will only be given if `observable.fancy_calculate`
@@ -107,6 +107,7 @@ class Observable{
         this.calculate_args = Observable.VALID.has(
             options.calculate_args
         ) ? options.calculate_args : Observable.NONE;
+        this.initialize();
         if(o.publishers){
             this.subscribe(publishers);
         }
@@ -266,16 +267,7 @@ class Observable{
         if(this.calculate){
             /** on my machine performance.now runs at 10 kHz */
             const t0 = performance.now();
-            if(this.fancy_calculate){
-                const o = new Map();
-                this.s_publishers.forEach((obs, s) => {
-                    o.set(s, obs.value);
-                });
-                this.value = this.calculate(o);
-            }
-            else{
-                this.value = this.calculate();
-            }
+            this.value = this.proxy_calculate();
             this.time_taken += performance.now() - t0;
         }
         // then recursive push
@@ -350,7 +342,7 @@ class Observable{
         /** @type {any[]} */
         const o = [];
         for(const p of this.s_publishers.values()){
-            o.push(p);
+            o.push(p.value);
         }
         return this.calculate(o);
     }
