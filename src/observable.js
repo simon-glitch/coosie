@@ -268,12 +268,14 @@ class Optimizer{
      * @param {number} [mspf] the amount of ms between cycles;
      */
     constructor(nodes, raw_updates_per_ms = 50000, mspf = 200){
-        /** @member {Observable[]} */
+        /** @type {Observable[]} */
         this.nodes = nodes;
-        /** @member {number} */
+        /** @type {number} */
         this.raw_updates_per_ms = raw_updates_per_ms;
-        /** @member {number} */
+        /** @type {number} */
         this.mspf = mspf;
+        /** Function to run every cycle / every time the graph is optimized. @type {Function | undefined} */
+        this.oncycle = undefined;
     }
     /**
      * Used to end the current cycle, and optimize the observer graph.
@@ -336,6 +338,7 @@ class Optimizer{
             node.update_count = 0;
             node.time_taken = 0;
         }
+        this?.oncycle();
     }
     /** Interval ID for the optimizer. Don't touch. */
     frame_id = -1;
@@ -359,6 +362,8 @@ class Elup{
         this.links = [];
         /** The number of milliseconds between frames. Elements are updated every frame. @type {number} */
         this.mspf = mspf;
+        /** Function to run every frame / update. @type {Function | undefined} */
+        this.onframe = undefined;
     }
     /**
      * Link an element to an observer, which adds it to the list of elements managed by this handler.
