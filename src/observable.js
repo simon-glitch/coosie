@@ -409,33 +409,4 @@ class Elup{
     }
 }
 
-/*
-function n(){
-    function m(){
-        let t0 = performance.now();
-        let t1 = performance.now();
-        let i = 0;
-        for(; i < 1e5 && t1 === t0; i++) t1 = performance.now();
-        return [i, t1-t0];
-    }
-    const a = [0, 0];
-    for(let i = 0; i < 100; i++){
-        const b = m();
-        a[0] += b[0];
-        a[1] += b[1];
-    }
-    return a;
-}
-n();
-
-function m(){
-    let t0 = performance.now();
-    let t1 = performance.now();
-    let i = 0;
-    for(; i < 1e6 && t1 === t0; i++) t1 = performance.now();
-    return [i, t1-t0];
-}
-m();
-*/
-
 
