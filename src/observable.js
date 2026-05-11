@@ -333,6 +333,59 @@ class Optimizer{
     }
 }
 
+/**
+ * Setup HTML elements so they are connected to observables. Each instance of this class is a "handler", which can use a set interval, and can be paused and resumed.
+ */
+class Elup{
+    constructor(mspf = 16){
+        /** element-observable pairs, linking each element to an observable. @type {[Element, Observable][]} */
+        this.links = [];
+        /** The number of milliseconds between frames. Elements are updated every frame. @type {number} */
+        this.mspf = mspf;
+    }
+    /**
+     * Link an element to an observer, which adds it to the list of elements managed by this handler.
+     * @param {Element} el 
+     * @param {Observable} obs 
+     */
+    add(el, obs){
+        this.links.push([el, obs]);
+    }
+    /**
+     * Link every element matching a query to an observer, which adds the elements to the list of elements managed by this handler.
+     * @param {string} q the query, which must be a CSS selector;
+     * @param {Observable} obs 
+     */
+    addq(q, obs){
+        const els = document.querySelectorAll(q);
+        if(!els) return;
+        for(const el of els) this.links.push([el, obs]);
+    }
+    remove(el){
+        const i = this.links.findIndex(pair => pair[0] === el);
+        if(i === -1) return;
+        this.links.splice(i, 1);
+    }
+    update(){
+        for(const pair of this.links){
+            const el = pair[0];
+            const obs = pair[1];
+            el.innerHTML = obs.get();
+        }
+    }
+    /** Interval ID for the handler. Don't touch. */
+    frame_id = -1;
+    /** Start / resume handling of element-observable links. */
+    start(){
+        this.frame_id = setInterval(this.update.bind(this));
+    }
+    /** Stop / pause handling of element-observable links. */
+    stop(){
+        clearInterval(this.frame_id);
+        this.frame_id = -1;
+    }
+}
+
 /*
 function n(){
     function m(){
