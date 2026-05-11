@@ -35,9 +35,9 @@ class Observable{
     publishers = [];
     /** The observables that are subscribed to this observable. @type {Observable[]} */
     subscribers = [];
-    /** Symbol map for the observables that this observable is subscribed to. @type {Record<Symbol, Observable>} */
+    /** Symbol map for the observables that this observable is subscribed to. @type {Map<Symbol, Observable>} */
     s_publishers = {};
-    /** Symbol map for the observables that are subscribed to this observable. @type {Record<Symbol, Observable>} */
+    /** Symbol map for the observables that are subscribed to this observable. @type {Map<Symbol, Observable>} */
     s_subscribers = {};
     /** Whether to construct `publisher_values` for `observable.calculate`. */
     fancy_calculate = false;
@@ -47,7 +47,7 @@ class Observable{
      */
     constructor(calculate){
         /**
-         * @member {(publisher_values: Record<Symbol, any> | undefined) => any} calculate The function used to calculate the value of this observable. 
+         * @member {(publisher_values: Map<Symbol, any> | undefined) => any} calculate The function used to calculate the value of this observable. 
          * - Feel free to modify this with external code if you want to.
          * - The values in `publisher_values` are the direct values of those publishers, not the actual publishers.
          * - `publisher_values` will only be given if `observable.fancy_calculate`
@@ -66,15 +66,13 @@ class Observable{
         });
     }
     initialize(){
-        this.update_count = 0;
-        this.time_taken = 0;
         this.subscribers = [];
         this.publishers = [];
-        for(const s in this.s_subscribers){
-            this.subscribers.push(this.s_subscribers[s]);
+        for(const s of this.s_subscribers.values()){
+            this.subscribers.push(s);
         }
-        for(const s in this.s_publishers){
-            this.publishers.push(this.s_publishers[s]);
+        for(const s of this.s_publishers.values()){
+            this.publishers.push(s);
         }
     }
     /**
@@ -88,11 +86,11 @@ class Observable{
             }
         }
         for(const p of publishers){
-            if(!this.s_publishers[p.symbol]){
-                this.s_publishers[p.symbol] = p;
+            if(!this.s_publishers.has(p.symbol)){
+                this.s_publishers.set(p.symbol, p);
                 this.publishers.push(p);
-                if(!p.s_subscribers[this.symbol]){
-                    p.s_subscribers[this.symbol] = this;
+                if(!p.s_subscribers.has(this.symbol)){
+                    p.s_subscribers.set(this.symbol, this);
                     p.subscribers.push(this);
                 }
             }
@@ -110,11 +108,11 @@ class Observable{
             }
         }
         for(const p of subscribers){
-            if(!this.s_subscribers[p.symbol]){
-                this.s_subscribers[p.symbol] = p;
+            if(!this.s_subscribers.has(p.symbol)){
+                this.s_subscribers.set(p.symbol, p);
                 this.subscribers.push(p);
-                if(!p.s_publishers[this.symbol]){
-                    p.s_publishers[this.symbol] = this;
+                if(!p.s_publishers.has(this.symbol)){
+                    p.s_publishers.set(this.symbol, this);
                     p.publishers.push(this);
                 }
             }
@@ -127,12 +125,13 @@ class Observable{
      */
     unsubscribe(publishers){
         for(const p of publishers){
-            if(this.s_publishers[p.symbol]){
-                delete this.s_publishers[p.symbol];
-                if(p.s_subscribers[this.symbol]){
-                    delete p.s_subscribers[this.symbol];
-                }
-            }
+            this.s_publishers.delete(p.symbol);
+            p.s_subscribers.delete(this.symbol);
+            // delete checks for has anyways;
+            // if(this.s_publishers.has(p.symbol)){
+            //     if(p.s_subscribers.has(this.symbol)){
+            //     }
+            // }
         }
     }
     /**
@@ -142,12 +141,13 @@ class Observable{
      */
     unaccept(subscribers){
         for(const p of subscribers){
-            if(this.s_subscribers[p.symbol]){
-                delete this.s_subscribers[p.symbol];
-                if(p.s_publishers[this.symbol]){
-                    delete p.s_publishers[this.symbol];
-                }
-            }
+            this.s_subscribers.delete(p.symbol);
+            p.s_publishers.delete(this.symbol);
+            // delete checks for has anyways;
+            // if(this.s_subscribers.has(p.symbol)){
+                // if(p.s_publishers.has(this.symbol)){
+                // }
+            // }
         }
     }
     /**
@@ -160,7 +160,7 @@ class Observable{
         for(const p of this.publishers){
             // prevent over-checking, since there are simple cases where you might over-check exponentially when only a linear number of nodes need checked;
             if(p.lastID === checkID) continue;
-            if(p.s_publishers[s]) return true;
+            if(p.s_publishers.has(s)) return true;
             if(p.check_subscribe(s, checkID)) return true;
             p.lastID = checkID;
         }
@@ -176,7 +176,7 @@ class Observable{
         for(const p of this.subscribers){
             // prevent over-checking, since there are simple cases where you might over-check exponentially when only a linear number of nodes need checked;
             if(p.lastID === checkID) continue;
-            if(p.s_subscribers[s]) return true;
+            if(p.s_subscribers.has(s)) return true;
             if(p.check_accept(s, checkID)) return true;
             p.lastID = checkID;
         }
@@ -197,13 +197,18 @@ class Observable{
             }
         }
         // then update
-        const o = {};
-        if(this.fancy_calculate) for(const s in this.s_publishers){
-            o[s] = this.s_publishers[s].value;
-        }
         /** on my machine performance.now runs at 10 kHz */
         const t0 = performance.now();
-        this.value = this.calculate(o);
+        if(this.fancy_calculate){
+            const o = new Map();
+            this.s_publishers.forEach((obs, s) => {
+                o[s] = obs.value
+            });
+            this.value = this.calculate(o);
+        }
+        else{
+            this.value = this.calculate();
+        }
         this.time_taken += performance.now() - t0;
     }
     /**
@@ -213,13 +218,18 @@ class Observable{
     publish(updateID){
         // update
         if(this.calculate){
-            const o = {};
-            if(this.fancy_calculate) for(const s in this.s_publishers){
-                o[s] = this.s_publishers[s].value;
-            }
             /** on my machine performance.now runs at 10 kHz */
             const t0 = performance.now();
-            this.value = this.calculate(o);
+            if(this.fancy_calculate){
+                const o = new Map();
+                this.s_publishers.forEach((obs, s) => {
+                    o[s] = obs.value
+                });
+                this.value = this.calculate(o);
+            }
+            else{
+                this.value = this.calculate();
+            }
             this.time_taken += performance.now() - t0;
         }
         // then recursive push
@@ -269,6 +279,10 @@ class Optimizer{
      * Used to end the current cycle, and optimize the observer graph.
      */
     cycle(){
+        /** Handle any removed subscribers / publishers. My idea is handling them here is more efficient that splicing lists every time. */
+        for(const node of this.nodes){
+            node.initialize();
+        }
         /**
          * Aggregate the `time_taken` property of every node so our heuristic is more effective.
          * @param {Observable} node
