@@ -387,13 +387,13 @@ class Observable{
  */
 class Optimizer{
     /**
-     * @param {Observable[]} nodes the observables this to be optimized;
+     * @param {Observable[] | Set<Observable>} [nodes] the observables this to be optimized;
      * @param {number} [raw_updates_per_ms] a heuristic for how many nodes with simple functions can be updated in 1 ms; this value can be fine-tuned based on your specific project;
      * @param {number} [mspf] the amount of ms between cycles;
      */
     constructor(nodes, raw_updates_per_ms = 50000, mspf = 200){
-        /** @type {Observable[]} */
-        this.nodes = nodes;
+        /** @type {Set<Observable>} */
+        this.nodes = new Set(nodes ?? []);
         /** @type {number} */
         this.raw_updates_per_ms = raw_updates_per_ms;
         /** @type {number} */
@@ -443,8 +443,10 @@ class Optimizer{
         // now what's convenient, is those subscribers SHOULD already have higher effective costs; so going from the highest cost nodes to the lowest cost nodes means we should automatically resolve these isues;
         // however, just in case, we double check to make sure they actually are;
         // in some cases, running this function a few times in a row might give more optimal results; however, I think funning it once every "frame" is fine;
-        this.nodes.sort((a,b) => b.effective_cost - a.effective_cost);
-        for(const node of this.nodes){
+        const sorted = [...this.nodes].sort(
+            (a,b) => b.effective_cost - a.effective_cost
+        );
+        for(const node of sorted){
             // unfortunately, this library is simple and only has one way of optimizing the graph, and that is changing the modes of observable nodes; forunately, this is a very useful optimization;
             // if subscribing node: is pull pressure > cost of upstream pushes? -> promote to publishing node;
             if(node.mode === 0 && node.effective_cost > node.publishers.reduce((a,b) => a + b.effective_cost, 0) && node.publishers.reduce((a,b) => a && b.mode === 1, true)){
@@ -533,12 +535,22 @@ class Next_Observable{
      * @param {Observable[]} [publishers] a list of observables that the next observable should be subscribed to; list anything here that you will need to use in the `calculate` function;
      */
     constructor(curr, app, calculate, publishers){
+        /** The app this next observable is part of. @type {App} */
+        this.app = app;
         /** The current observable. @type {Observable} */
         this.curr = curr;
         // this line of code looks particularly magical;
         publishers = [...(publishers ?? []), curr];
         /** The next observable. The name could be confused with the name of this class, but this observable is only used internally. @type {Observable} */
         this.next = App.O("next_" + curr.name, calculate, publishers);
+    }
+    /**
+     * Delete this next observable. That means removing it and both its observables.
+     */
+    remove(){
+        this.app.next.delete(this.curr.symbol);
+        this.app.remove(this.curr);
+        this.app.remove(this.next);
     }
 }
 
@@ -571,10 +583,8 @@ class Input{
      */
     remove(){
         this.app.inputs.delete(this);
-        this.app.os.delete(this.o.symbol);
+        this.app.remove(this.o);
         this.el.remove();
-        this.o.unsubscribe(this.o.publishers);
-        this.o.unaccept(this.o.subscribers);
     }
 }
 
@@ -625,26 +635,11 @@ class Output{
     }
     /**
      * Delete this output. That means removing it, its observable, and its element.
-     * - It is assumed that an observable will not be used on both an input and an output.
      */
     remove(){
-        this.app.outputs.delete(this);
-        if(this.app.os.has(this.o.symbol)){
-            this.app.os.get(this.o.symbol).clear();
-            this.app.os.delete(this.o.symbol);
-        }
+        this.app.inputs.delete(this);
+        this.app.remove(this.o);
         this.el.remove();
-        this.o.unsubscribe(this.o.publishers);
-        this.o.unaccept(this.o.subscribers);
-        if(this.app.next.has(this.o.symbol)){
-            const n = this.app.next.get(this.o.symbol).next;
-            if(this.app.os.has(n.symbol)){
-                this.app.os.get(n.symbol).clear();
-                this.app.os.delete(n.symbol);
-            }
-            n.unsubscribe(n.publishers);
-            n.unaccept(n.subscribers);
-        }
     }
 }
 
@@ -671,9 +666,9 @@ class App{
         this.now = this.O("now", __, __, this.curr_t);
         /** Observable for the time difference between frames. @type {Observable} */
         this.dt = this.O("dt", __, __, this.dt_n);
-        /** List of inputs, as a set. @type {Set<Input>} */
+        /** List of inputs, as a set. @type {Map<Symbol, Input>} */
         this.inputs = new Set();
-        /** List of outputs, as a set. @type {Set<Output>} */
+        /** List of outputs, as a set. @type {Map<Symbol, Output>} */
         this.outputs = new Set();
         /** Map of observable names to symbols. Duplicate names are not allowed. @type {Map<String, Symbol>} */
         this.o_symbols = new Map();
@@ -685,6 +680,8 @@ class App{
         this.mspf = mspf;
         /** List of functions to run every at the end of the current frame. These get cleared every frame. This is intended to be a place where you can put callbacks. These are for modifying the app's structure. So you could use a callback to open a menu, or close a menu, or reset a board. @type {Function | undefined} */
         this.todo = undefined;
+        /** The optimizer for this app. @type {Optimizer} */
+        this.optimizer = new Optimizer();
     }
     /**
      * Create a new observable and add it to this app's list of observables.
@@ -714,6 +711,7 @@ class App{
         });
         this.o_symbols.set(name, s);
         this.os.set(s, new Debug_Observable(o));
+        this.optimizer.nodes.add(o);
         return o;
     }
     /**
@@ -750,6 +748,22 @@ class App{
             os.push(this.Output(el, obs));
         }
         return os;
+    }
+    /**
+     * Remove an observable from this app.
+     * @param {Observable} o the observable to remove/delete;
+     * @param {bool} others whether to remove any Input, Output, or Next_Observable assosciated with the observable;
+     */
+    remove(o, others){
+        this.os.delete(o.symbol);
+        this.optimizer.nodes.delete(o);
+        o.unsubscribe(o.publishers);
+        o.unaccept(o.subscribers);
+        if(others){
+            this.inputs .get(o.symbol)?.remove?.();
+            this.outputs.get(o.symbol)?.remove?.();
+            this.next   .get(o.symbol)?.remove?.();
+        }
     }
     /** Where all the magic happens. */
     frame(){
