@@ -509,12 +509,16 @@ class Next_Observable{
      * Create a next observable and link it to a current observable.
      * @param {Observable} curr the current observable to use;
      * @param {App} app the app the next observable is going in; this is needed for debugging;
+     * @param {Function} [calculate] the function to calculate the next value of the observable (i.e. the value of the next observable); this can use the value of the current observable, but it should not use the value of the next observable; also, make sure to read `.value` directly, instead of using `.get()`; `.get()` is only supposed to be called by `App.frame` directly;
+     * @param {Observable[]} [publishers] a list of observables that the next observable should be subscribed to; list anything here that you will need to use in the `calculate` function;
      */
-    constructor(curr){
+    constructor(curr, app, calculate, publishers){
         /** The current observable. @type {Observable} */
         this.curr = curr;
+        // this line of code looks particularly magical;
+        publishers = [...(publishers ?? []), curr];
         /** The next observable. The name could be confused with the name of this class, but this observable is only used internally. @type {Observable} */
-        this.next = App.O();
+        this.next = App.O("next_" + curr.name, calculate, publishers);
     }
 }
 
@@ -610,17 +614,44 @@ class Output{
 class App{
     constructor(mspf = 16){
         /** List of inputs, as a set. @type {Set<Input>} */
-        this.inputs = [];
+        this.inputs = new Set();
         /** List of outputs, as a set. @type {Set<Output>} */
-        this.outputs = [];
+        this.outputs = new Set();
+        /** Map of observable names to symbols. Duplicate names are not allowed. @type {Map<String, Symbol>} */
+        this.o_symbols = new Map();
         /** List of observables being managed by this app, as a map. The keys are the symbols of the managed observables. @type {Map<Symbol, Debug_Observable>} */
-        this.os = [];
+        this.os = new Map();
         /** List of next observables being managed by this app, as a map. The keys are the symbols of the current observables. `Next_Observable` is a wrapper with the observable for the current value, and the observable for the next value. @type {Map<Symbol, Next_Observable>} */
-        this.next = [];
+        this.next = new Map();
         /** The number of milliseconds between frames. Elements and next observables are updated every frame. @type {number} */
         this.mspf = mspf;
         /** List of functions to run every at the end of the current frame. These get cleared every frame. This is intended to be a place where you can put callbacks. These are for modifying the app's structure. So you could use a callback to open a menu, or close a menu, or reset a board. @type {Function | undefined} */
         this.todo = undefined;
+    }
+    /**
+     * Create a new observable and add it to this app's list of observables.
+     * @param {string} name the name of the observable (required);
+     * @param {Function} [calculate] the function to calculate the value of the observable;
+     * @param {Observable[]} [publishers] the publishers that the observable will have; you can list these by name, by symbol, or by reference;
+     */
+    O(name, calculate, publishers){
+        name = String(name);
+        if(!name) throw new TypeError("App.O requires a name for the observable.");
+        if(this.o_symbols.has(name)) throw new ReferenceError(`The name "${name}" is already in use.`);
+        const s = Symbol(`observable.${name}`);
+        this.o_symbols.set(name, s);
+        publishers = (publishers ?? []).map(p => (
+            p instanceof Observable ?
+            p :
+            this.os.get(
+                typeof p === "string" ?
+                this.o_symbols.get(p) :
+                p
+            )
+        )).filter(p instanceof Observable);
+        const o = new Observable({
+            name, symbol: s, calculate, publishers,
+        });
     }
     /**
      * Link an element to an observable, which adds it to the list of elements managed by this handler.
