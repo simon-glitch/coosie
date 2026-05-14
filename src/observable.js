@@ -576,6 +576,25 @@ class Input{
     }
 }
 
+class Click_Input extends Input{
+    /** The number of times the user has clicked this frame. */
+    clicked = 0;
+    /**
+     * @param {Observable} o sets `input.o`;
+     * @param {Element} el sets `input.el`;
+     * @param {App} app sets `input.app`;
+     */
+    constructor(o, el, app){
+        super(o, el, app);
+        el.addEventListener("click", function(e){
+            this.clicked++;
+        }.bind(this));
+    }
+    cleanup(){
+        this.clicked = 0;
+    }
+}
+
 /**
  * This is similar to `Input`, but there is no need to create a superclass for both of them.
  * - Also, this class does not to be extended.
