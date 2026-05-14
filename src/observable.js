@@ -4,6 +4,8 @@
  * This is version 1.
  */
 
+const __ = undefined;
+
 /**
  * This is a type for `{ Look ma, I'm a UUID! }`, the empty object.
  * @typedef {Record<string, never>} Empty;
@@ -655,6 +657,20 @@ class App{
     /** Whether we are debugging this frame. */
     debug = true;
     constructor(mspf = 16){
+        /** Time of last frame (using `performance.now`). @type {number} */
+        this.last_t_p = performance.now();
+        /** Time of current frame (using `performance.now`). @type {number} */
+        this.curr_t_p = performance.now();
+        /** Time of last frame (using `Date`). @type {Date} */
+        this.last_t = new Date();
+        /** Time of current frame (using `Date`). @type {Date} */
+        this.curr_t = new Date();
+        /** Time difference between frames. @type {number} */
+        this.dt_n = this.curr_t_p - this.last_t_p;
+        /** Observable for the current time. @type {Observable} */
+        this.now = this.O("now", __, __, this.curr_t);
+        /** Observable for the time difference between frames. @type {Observable} */
+        this.dt = this.O("dt", __, __, this.dt_n);
         /** List of inputs, as a set. @type {Set<Input>} */
         this.inputs = new Set();
         /** List of outputs, as a set. @type {Set<Output>} */
@@ -675,8 +691,9 @@ class App{
      * @param {string} name the name of the observable (required);
      * @param {Function} [calculate] the function to calculate the value of the observable;
      * @param {Observable[]} [publishers] the publishers that the observable will have; you can list these by name, by symbol, or by reference;
+     * @param {any} [value] the starting value of the observable;
      */
-    O(name, calculate, publishers){
+    O(name, calculate, publishers, value){
         name = String(name);
         if(!name) throw new TypeError("App.O requires a name for the observable.");
         if(this.o_symbols.has(name)) throw new ReferenceError(`The name "${name}" is already in use.`);
@@ -692,7 +709,8 @@ class App{
             )
         )).filter(p instanceof Observable);
         const o = new Observable({
-            name, symbol: s, calculate, publishers,
+            name, symbol: s,
+            calculate, publishers, value,
         });
         this.o_symbols.set(name, s);
         this.os.set(s, new Debug_Observable(o));
@@ -735,25 +753,33 @@ class App{
     }
     /** Where all the magic happens. */
     frame(){
+        // first, figure out time;
+        this.last_t_p = this.curr_t_p;
+        this.last_t = this.curr_t;
+        this.curr_t_p = performance.now();
+        this.curr_t = new Date();
+        this.dt_n = this.curr_t_p - this.last_t_p;
+        this.now.set(this.curr_t);
+        this.dt.set(this.dt_n);
         const nextID = {/* Look ma, I'm a UUID! */};
-        // first, calculate the next state;
+        // second, calculate the next state;
         for(const n of this.next.values()){
             n.next.get(nextID);
         }
         const currID = {/* Look ma, I'm a UUID! */};
-        // second, set the current state to the next state; this loop must be separate;
+        // third, set the current state to the next state; this loop must be separate;
         for(const n of this.next.values()){
             n.curr.set(n.next.value, currID);
         }
-        // third, update the UI;
+        // fourth, update the UI;
         for(const o of this.outputs.values()){
             o.update(currID);
         }
-        // fourth, reset/cleanup the inputs;
+        // fifth, reset/cleanup the inputs;
         for(const o of this.inputs.values()){
             o.cleanup();
         }
-        // fifth, handle debugging;
+        // sixth, handle debugging;
         if(this.debug_init){
             const ul = document.querySelector(".debug");
             for(const o of this.os.values()){
@@ -766,7 +792,7 @@ class App{
             }
         }
         
-        // last step: run callbacks;
+        // last step, run callbacks;
         try{for(const f of this.todo){
             f();
         }}
