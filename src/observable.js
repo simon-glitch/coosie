@@ -501,8 +501,107 @@ class Debug_Observable{
     }
 }
 
+/**
+ * Specialized class for linking a current observable to a next observable. The constructor automatially creates the next observable.
+ */
+class Next_Observable{
+    /**
+     * Create a next observable and link it to a current observable.
+     * @param {Observable} curr the current observable to use;
+     * @param {App} app the app the next observable is going in; this is needed for debugging;
+     */
+    constructor(curr){
+        /** The current observable. @type {Observable} */
+        this.curr = curr;
+        /** The next observable. The name could be confused with the name of this class, but this observable is only used internally. @type {Observable} */
+        this.next = App.O();
+    }
+}
+
+/**
+ * Every type of input should be a class that inherits from this class.
+ */
 class Input{
-    
+    /**
+     * Setup a listener for an input on an element, so the input is automatially put in an observable.
+     * - Because this is the base class, it does not actually set an event listener.
+     * @param {Observable} o sets `input.o`;
+     * @param {Element} el sets `input.el`;
+     * @param {App} app sets `input.app`;
+     */
+    constructor(o, el, app){
+        /** The observable to input into. @type {Observable} */
+        this.o = o;
+        /** Which element to put an event listener on. @type {Element} */
+        this.el = el;
+        /** Which app manages this input. @type {App} */
+        this.app = app;
+    }
+    /**
+     * Prepare this input for the next frame. This varies for each type of input and should be overridden by classes than inherit from `Input`. This method will get run at the end of `App.frame`.
+     * @abstract
+     */
+    cleanup(){}
+    /**
+     * Delete this input. That means removing it, its observable, and its element.
+     */
+    remove(){
+        this.app.inputs.delete(this);
+        this.app.os.delete(this.o.symbol);
+        this.el.remove();
+        this.o.unsubscribe(this.o.publishers);
+        this.o.unaccept(this.o.subscribers);
+    }
+}
+
+/**
+ * This is similar to `Input`, but there is no need to create a superclass for both of them.
+ * - Also, this class does not to be extended.
+ */
+class Output{
+    /**
+     * Setup an observable to automatically output to an element.
+     * @param {Observable} o sets `output.o`;
+     * @param {Element} el sets `output.el`;
+     * @param {App} app sets `output.app`;
+     */
+    constructor(o, el, app){
+        /** Which observable this output reads from. @type {Observable} */
+        this.o = o;
+        /** Which element this output outputs to. @type {Element} */
+        this.el = el;
+        /** Which app manages this output. @type {App} */
+        this.app = app;
+    }
+    /**
+     * Update function to run every frame. You could override this if you wanted to handle things without any complicated tricks.
+     */
+    update(){
+        this.el.innerHTML = this.o.get();
+    }
+    /**
+     * Delete this output. That means removing it, its observable, and its element.
+     * - It is assumed that an observable will not be used on both an input and an output.
+     */
+    remove(){
+        this.app.outputs.delete(this);
+        if(this.app.os.has(this.o.symbol)){
+            this.app.os.get(this.o.symbol).clear();
+            this.app.os.delete(this.o.symbol);
+        }
+        this.el.remove();
+        this.o.unsubscribe(this.o.publishers);
+        this.o.unaccept(this.o.subscribers);
+        if(this.app.next.has(this.o.symbol)){
+            const n = this.app.next.get(this.o.symbol).next;
+            if(this.app.os.has(n.symbol)){
+                this.app.os.get(n.symbol).clear();
+                this.app.os.delete(n.symbol);
+            }
+            n.unsubscribe(n.publishers);
+            n.unaccept(n.subscribers);
+        }
+    }
 }
 
 /**
@@ -510,18 +609,18 @@ class Input{
  */
 class App{
     constructor(mspf = 16){
-        /** input-observable pairs, linking each element to an observable. @type {[Input, Observable][]} */
+        /** List of inputs, as a set. @type {Set<Input>} */
         this.inputs = [];
-        /** element-observable pairs, linking each element to an observable. @type {[Element, Observable][]} */
+        /** List of outputs, as a set. @type {Set<Output>} */
         this.outputs = [];
-        /** list of observables being managed by this app. @type {Debug_Observable[]} */
+        /** List of observables being managed by this app, as a map. The keys are the symbols of the managed observables. @type {Map<Symbol, Debug_Observable>} */
         this.os = [];
-        /** Current-next observable pairs. `app.frame` will automatically set the current observable to the next observable's value. @type {[Observable, Observable][]} */
-        this.os = [];
+        /** List of next observables being managed by this app, as a map. The keys are the symbols of the current observables. `Next_Observable` is a wrapper with the observable for the current value, and the observable for the next value. @type {Map<Symbol, Next_Observable>} */
+        this.next = [];
         /** The number of milliseconds between frames. Elements and next observables are updated every frame. @type {number} */
         this.mspf = mspf;
-        /** Function to run every frame / update. @type {Function | undefined} */
-        this.onframe = undefined;
+        /** List of functions to run every at the end of the current frame. These get cleared every frame. This is intended to be a place where you can put callbacks. These are for modifying the app's structure. So you could use a callback to open a menu, or close a menu, or reset a board. @type {Function | undefined} */
+        this.todo = undefined;
     }
     /**
      * Link an element to an observable, which adds it to the list of elements managed by this handler.
