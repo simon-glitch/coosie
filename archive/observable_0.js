@@ -1,7 +1,7 @@
 /**
  * This library uses the GNU General Public License, version 3 (link: https://www.gnu.org/licenses/gpl-3.0.html).
  * Library written by Simanelix.
- * This is version 1.
+ * This is version 0.
  */
 
 /**
@@ -13,7 +13,6 @@
  * @typedef {Object} Observable_Options
  * @property {string} [name] - custom name for this observable;
  * @property {symbol} [symbol] - override for the symbol this observable should use; keep in mind, the constructor can generate a generic symbol automatially; the symbol is important and is used to recognize the observable;
- * @property {string} [value] - the starting value for this observable;
  * @property {(publisher_args: Map | Array | undefined) => any => any} calculate the function used to calculate the value of this observable;
  * @property {symbol} [calculate_args] - indicates which arguments should be passed to observable.calculate; see `Observable.NONE` (`static NONE` in the code) and the symbols following it;
  * @property {0 | 1} [mode] - the starting `mode` of this observable;
@@ -29,7 +28,6 @@
  * - See the constructor for more info.
  * - "This cycle" refers to the time between update horizon optimizations. See `Optimizer` for more info.
  * - By the way, make sure to use subscribe and accept. **Do not** modify the subscribers and members of this class directly. The only member you can modfy safely is `observable.calculate`.
- * - Observables are sometimes called nodes, since they are intended to compose functional DAGs.
  */
 class Observable{
     /** The string / display name of this observable. */
@@ -82,12 +80,12 @@ class Observable{
     /** What kinds of `publisher_args` to construct for `observable.calculate`. @type {Symbol} @default Observable.NONE */
     calculate_args = Observable.NONE;
     /**
-     * This constructor has many options.
-     * @param {Observable_Options} [options] See `Observable_Options` for more info.
+     * This constructor doesn't have many options, because you have to specify the publishers and subscribers of this node separately.
+     * @param {Observable_Options | (publisher_args: Map | Array | undefined) => any} [options] See `Observable_Options` for more info. You can instead put the `calculate` function here (see `observable.calculate`).
      */
     constructor(options){
         /** @type {Observable_Options} */
-        const o = options ?? {};
+        const o = (typeof options === "function") ? {calculate: options} : (options ?? {});
         /**
          * @type {undefined | (publisher_args: Map | Array | undefined) => any} The function used to calculate the value of this observable. 
          * - Feel free to modify this with external code if you want to.
@@ -96,22 +94,21 @@ class Observable{
          * - Note that `this` will be this observable, unless you bind the function or use an arrow function.
          */
         this.calculate = (typeof o.calculate === "function") ? o.calculate : this.calculate;
-        this.name = String(o.name ?? this.name);
-        this.mode = Number(Boolean(o.mode ?? this.mode));
-        this.value = o.value ?? this.value;
+        this.name = String(o?.name ?? this.name);
+        this.mode = Number(Boolean(o?.mode ?? this.mode));
         this.publishers = [];
         this.subscribers = [];
         this.s_publishers = new Map();
         this.s_subscribers = new Map();
         // You're welcome.
-        const symbol = o.symbol ?? Symbol("observable.instance.symbol");
+        const symbol = o?.symbol ?? Symbol("observable.instance.symbol");
         Object.defineProperty(this, "symbol", {
             get(){return symbol;},
             configurable: false,
         });
         this.calculate_args = Observable.VALID.has(
-            o.calculate_args
-        ) ? o.calculate_args : Observable.NONE;
+            options.calculate_args
+        ) ? options.calculate_args : Observable.NONE;
         this.initialize();
         if(o.publishers){
             this.subscribe(publishers);
@@ -284,28 +281,21 @@ class Observable{
             }
         }
     }
-    /**
-     * Used for external connections, like for getting the value of output variables. This causes a subscribing observable to update its value.
-     * @param {Empty} [updateID] the UUID used to prevent the same observable from being updated twice;
-     */
-    get(updateID){
+    /** Used for external connections, like for getting the value of output variables. This causes a subscribing node to update its value. */
+    get(){
         if(this.mode === 0){
-            this.update(updateID ?? {/* Look ma, I'm a UUID! */});
+            this.update({/* Look ma, I'm a UUID! */});
         }
         return this.value;
     }
-    /**
-     * Used for external connections, like for updating the base variables of the system. This causes a publishing observable to publish its value.
-     * @param {*} value the value to set for the observable;
-     * @param {Empty} [updateID] the UUID used to prevent the same observable from being updated twice;
-     */
-    set(value, updateID){
+    /** Used for external connections, like for updating the base variables of the system. This causes a publishing node to publish its value. */
+    set(value){
         if(this.calculate){
             throw new TypeError("Cannot set the value of an observable that has a calculate method, since that implies that this observable is not a root observable.");
         }
         this.value = value;
         if(this.mode === 1){
-            this.publish(updateID ?? {/* Look ma, I'm a UUID! */});
+            this.publish({/* Look ma, I'm a UUID! */});
         }
     }
     /** This gets overwritten by observable.initialize. This function is used as a proxy to set up publisher_args before passing it so calculate. When observable.calculate_args = Observable.NONE, this method gets overwritten to be whatever calculate is. @type {(publisher_args: Map | Array | undefined) => any} */
@@ -456,69 +446,13 @@ class Optimizer{
 }
 
 /**
- * Specialized class for debugging the mode of an observable.
- */
-class Debug_Observable{
-    /** The observable to debug. @type {Observable} */
-    o = new Observable();
-    /** The previous mode of the observable. @type {0 | 1} */
-    prev = 0;
-    /** The element where the debug info is listed. @type {HTMLLIElement | undefined} */
-    el = document.createElement("li");
-    getHTML(){
-        return `${this.o.name ?? "[Un-named]"} mode: ${["subscribing","publishing"][this.o.mode]}`;
-    }
-    update(){
-        if(this.prev !== this.o.mode){
-            this.prev = this.o.mode;
-            this.el.innerHTML = getHTML();
-        }
-    }
-    /**
-     * Setup debugging for an observable - step 1.
-     * @param {Observable} o the observable;
-     */
-    constructor(o){
-        this.o = o;
-        this.el = undefined;
-    }
-    /**
-     * Setup debugging for an observable - step 2. Used to start debugging.
-     * @param {HTMLUListElement} u the list element to place the debug element in;
-     */
-    initialize(u){
-        this.el = document.createElement("li");
-        u.appendChild(this.el);
-        this.prev = 1 - this.o.mode;
-        this.update();
-    }
-    /**
-     * Used to stop debugging, undoing step 2 of the setup.
-     */
-    clear(){
-        this.el.remove();
-        this.el = undefined;
-    }
-}
-
-class Input{
-    
-}
-
-/**
  * Setup HTML elements so they are connected to observables. Each instance of this class is a "handler", which can use a set interval, and can be paused and resumed.
  */
-class App{
+class Elup{
     constructor(mspf = 16){
-        /** input-observable pairs, linking each element to an observable. @type {[Input, Observable][]} */
-        this.inputs = [];
         /** element-observable pairs, linking each element to an observable. @type {[Element, Observable][]} */
-        this.outputs = [];
-        /** list of observables being managed by this app. @type {Debug_Observable[]} */
-        this.os = [];
-        /** Current-next observable pairs. `app.frame` will automatically set the current observable to the next observable's value. @type {[Observable, Observable][]} */
-        this.os = [];
-        /** The number of milliseconds between frames. Elements and next observables are updated every frame. @type {number} */
+        this.links = [];
+        /** The number of milliseconds between frames. Elements are updated every frame. @type {number} */
         this.mspf = mspf;
         /** Function to run every frame / update. @type {Function | undefined} */
         this.onframe = undefined;
@@ -528,43 +462,39 @@ class App{
      * @param {Element} el 
      * @param {Observable} obs 
      */
-    Output(el, obs){
-        this.outputs.push([el, obs]);
+    add(el, obs){
+        this.links.push([el, obs]);
     }
     /**
      * Link every element matching a query to an observable, which adds the elements to the list of elements managed by this handler.
      * @param {string} q the query, which must be a CSS selector;
      * @param {Observable} obs 
      */
-    Output_Q(q, obs){
+    addq(q, obs){
         const els = document.querySelectorAll(q);
         if(!els) return;
-        for(const el of els) this.outputs.push([el, obs]);
+        for(const el of els) this.links.push([el, obs]);
     }
-    Element_Remove(el){
+    remove(el){
         const i = this.links.findIndex(pair => pair[0] === el);
         if(i === -1) return;
         this.links.splice(i, 1);
     }
-    frame(){
-        for(const pair of this.elements){
+    update(){
+        for(const pair of this.links){
             const el = pair[0];
             const obs = pair[1];
             el.innerHTML = obs.get();
         }
-        try{for(const f of this.todo){
-            f();
-        }}
-        catch(e){}
-        this.todo = [];
+        this?.onframe();
     }
     /** Interval ID for the handler. Don't touch. */
     frame_id = -1;
-    /** Start / resume `app.frame` inverval. */
+    /** Start / resume handling of element-observable links. */
     start(){
-        this.frame_id = setInterval(this.frame.bind(this), this.mspf);
+        this.frame_id = setInterval(this.update.bind(this), this.mspf);
     }
-    /** Stop / pause `app.frame` inverval. */
+    /** Stop / pause handling of element-observable links. */
     stop(){
         clearInterval(this.frame_id);
         this.frame_id = -1;
