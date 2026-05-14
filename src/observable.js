@@ -597,9 +597,10 @@ class Output{
     }
     /**
      * Update function to run every frame. You could override this if you wanted to handle things without any complicated tricks.
+     * @param {Empty} [updateID] the UUID used to prevent the same observable from being updated twice; everyone's favorite parameter, right?
      */
-    update(){
-        this.el.innerHTML = this.o.get();
+    update(updateID){
+        this.el.innerHTML = this.o.get(updateID);
     }
     /**
      * Delete this output. That means removing it, its observable, and its element.
@@ -630,6 +631,10 @@ class Output{
  * Setup HTML elements so they are connected to observables. Each instance of this class is a "handler", which can use a set interval, and can be paused and resumed.
  */
 class App{
+    /** Whether debugging needs to be initialized this frame. */
+    debug_init = true;
+    /** Whether we are debugging this frame. */
+    debug = true;
     constructor(mspf = 16){
         /** List of inputs, as a set. @type {Set<Input>} */
         this.inputs = new Set();
@@ -675,34 +680,74 @@ class App{
         return o;
     }
     /**
-     * Link an element to an observable, which adds it to the list of elements managed by this handler.
-     * @param {Element} el 
-     * @param {Observable} obs 
+     * Add a new input to this app.
+     * @param {Element} el the element that will update the input;
+     * @param {Observable} obs the observer that will be updated by the input;
+     * @param {typeof Input} type the class to use to construct the input; this should be a subclass of `Input`;
      */
-    Output(el, obs){
-        this.outputs.push([el, obs]);
+    Input(el, obs, type){
+        const o = new type(obs, el, this);
+        this.inputs.add(o);
+        return o;
     }
     /**
-     * Link every element matching a query to an observable, which adds the elements to the list of elements managed by this handler.
+     * Link an element to an observable, and add it to the list of outputs managed by this app.
+     * @param {Element} el the element;
+     * @param {Observable} obs the observable;
+     */
+    Output(el, obs){
+        const o = new Output(obs, el, this);
+        this.outputs.add(o);
+        return o;
+    }
+    /**
+     * Link every element matching a query to an observable, and add each of them to the list of outputs managed by this app.
      * @param {string} q the query, which must be a CSS selector;
-     * @param {Observable} obs 
+     * @param {Observable} obs the observable;
      */
     Output_Q(q, obs){
+        const os = [];
         const els = document.querySelectorAll(q);
-        if(!els) return;
-        for(const el of els) this.outputs.push([el, obs]);
-    }
-    Element_Remove(el){
-        const i = this.links.findIndex(pair => pair[0] === el);
-        if(i === -1) return;
-        this.links.splice(i, 1);
-    }
-    frame(){
-        for(const pair of this.elements){
-            const el = pair[0];
-            const obs = pair[1];
-            el.innerHTML = obs.get();
+        if(!els) return [];
+        for(const el of els){
+            os.push(this.Output(el, obs));
         }
+        return os;
+    }
+    /** Where all the magic happens. */
+    frame(){
+        const nextID = {/* Look ma, I'm a UUID! */};
+        // first, calculate the next state;
+        for(const n of this.next.values()){
+            n.next.get(nextID);
+        }
+        const currID = {/* Look ma, I'm a UUID! */};
+        // second, set the current state to the next state; this loop must be separate;
+        for(const n of this.next.values()){
+            n.curr.set(n.next.value, currID);
+        }
+        // third, update the UI;
+        for(const o of this.outputs.values()){
+            o.update(currID);
+        }
+        // fourth, reset/cleanup the inputs;
+        for(const o of this.inputs.values()){
+            o.cleanup();
+        }
+        // fifth, handle debugging;
+        if(this.debug_init){
+            const ul = document.querySelector(".debug");
+            for(const o of this.os.values()){
+                o.initialize(ul);
+            }
+        }
+        if(this.debug){
+            for(const o of this.os.values()){
+                o.update();
+            }
+        }
+        
+        // last step: run callbacks;
         try{for(const f of this.todo){
             f();
         }}
@@ -719,6 +764,19 @@ class App{
     stop(){
         clearInterval(this.frame_id);
         this.frame_id = -1;
+    }
+    start_debug(){
+        if(this.debug) return;
+        this.debug_init = true;
+        this.debug = true;
+    }
+    stop_debug(){
+        if(!this.debug) return;
+        for(const o of this.os.values()){
+            o.clear();
+        }
+        this.debug_init = false;
+        this.debug = false;
     }
 }
 
