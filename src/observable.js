@@ -670,6 +670,9 @@ class App{
         const o = new Observable({
             name, symbol: s, calculate, publishers,
         });
+        this.o_symbols.set(name, s);
+        this.os.set(s, new Debug_Observable(o));
+        return o;
     }
     /**
      * Link an element to an observable, which adds it to the list of elements managed by this handler.
