@@ -407,33 +407,31 @@ class Optimizer{
         for(const node of this.nodes){
             node.initialize();
         }
-        /**
-         * Aggregate the `time_taken` property of every node so our heuristic is more effective.
-         * @param {Observable} node
-         */
-        function aggregate_time_s(node){
-            for(const p of node.publishers){
-                p.time_taken += node.time_taken;
-                aggregate_time_s(p);
+        // aggregrate time values towards the horizon;
+        /** @type {Set<Observable>} */
+        const done = new Set();
+        /** @type {Set<Observable>} */
+        const queue = new Set();
+        do{
+            for(const node of this.nodes){
+                // node.mode === 0 should be redundant;
+                if(node.mode === 0 && node.subscribers.reduce((a,b) => a && done.has(b), true)){
+                    done.add(node);
+                    for(const p of node.publishers){
+                        p.time_taken += node.time_taken;
+                        queue.add(p);
+                    }
+                }
+                // node.mode === 1 should be redundant;
+                if(node.mode === 1 && node.publishers.reduce((a,b) => a && done.has(b), true)){
+                    done.add(node);
+                    for(const p of node.subscribers){
+                        p.time_taken += node.time_taken;
+                        queue.add(p);
+                    }
+                }
             }
-        }
-        /**
-         * @param {Observable} node
-         */
-        function aggregate_time_p(node){
-            for(const p of node.subscribers){
-                p.time_taken += node.time_taken;
-                aggregate_time_p(p);
-            }
-        }
-        for(const node of this.nodes){
-            if(node.subscribers.length === 0){
-                aggregate_time_s(node);
-            }
-            if(node.publishers.length === 0){
-                aggregate_time_p(node);
-            }
-        }
+        } while(queue.size > 0);
         for(const node of this.nodes){
             node.effective_cost = node.update_count + (node.time_taken * this.raw_updates_per_ms);
         }
