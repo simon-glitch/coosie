@@ -14,11 +14,12 @@
  * @property {string} [name] - custom name for this observable;
  * @property {symbol} [symbol] - override for the symbol this observable should use; keep in mind, the constructor can generate a generic symbol automatially; the symbol is important and is used to recognize the observable;
  * @property {string} [value] - the starting value for this observable;
- * @property {(publisher_args: Map | Array | undefined) => any => any} calculate the function used to calculate the value of this observable;
+ * @property {(publisher_args: Map | Array | undefined) => any} calculate the function used to calculate the value of this observable;
  * @property {symbol} [calculate_args] - indicates which arguments should be passed to observable.calculate; see `Observable.NONE` (`static NONE` in the code) and the symbols following it;
  * @property {0 | 1} [mode] - the starting `mode` of this observable;
  * @property {Observable[]} [publishers] - a list of publishers this observable should immediately subscribe to;
  * @property {Observable[]} [subscribers] - a list of subscribers this observable should immediately accept;
+ * @property {(curr: any, next: any) => bool} [equals] the function used to compare the current value to the next value on publishing observables; if it returns true, the observable will not recursively publish to publishing observables that are subscribed to it; for observables with too few subscribers, this method can actually be bad for performance;
  */
 
 /**
@@ -103,6 +104,10 @@ class Observable{
         this.subscribers = [];
         this.s_publishers = new Map();
         this.s_subscribers = new Map();
+        /**
+         * @type {(curr: any, next: any) => bool} the function used to compare the current value to the next value on publishing observables; if it returns true, the observable will not recursively publish to publishing observables that are subscribed to it; for observables with too few subscribers, this method can actually be bad for performance;
+         */
+        this.equals = o.equals;
         // You're welcome.
         const symbol = o.symbol ?? Symbol("observable.instance.symbol");
         Object.defineProperty(this, "symbol", {
@@ -249,8 +254,8 @@ class Observable{
      */
     update(updateID){
         // recusrive pull
-        this.lastID = updateID;
         this.update_count++;
+        this.lastID = updateID;
         if(!this.calculate) return;
         for(const p of this.publishers){
             if(p.mode === 0 && p.lastID !== updateID){
@@ -272,15 +277,29 @@ class Observable{
         if(this.calculate){
             /** on my machine performance.now runs at 10 kHz */
             const t0 = performance.now();
-            this.value = this.proxy_calculate();
+            const next = this.proxy_calculate();
+            const changed = !(this.equals ? this.equals(this.value, next) : this.value === next);
             this.time_taken += performance.now() - t0;
+            // then recursive push
+            this.update_count++;
+            if(changed){
+                this.value = next;
+                this.lastID = updateID;
+                for(const p of this.subscribers){
+                    if(p.mode === 1 && p.lastID !== updateID){
+                        p.publish(updateID);
+                    }
+                }
+            }
         }
-        // then recursive push
-        this.lastID = updateID;
-        this.update_count++;
-        for(const p of this.subscribers){
-            if(p.mode === 1 && p.lastID !== updateID){
-                p.publish(updateID);
+        // logic for root nodes to publish;
+        else{
+            this.update_count++;
+            this.lastID = updateID;
+            for(const p of this.subscribers){
+                if(p.mode === 1 && p.lastID !== updateID){
+                    p.publish(updateID);
+                }
             }
         }
     }
@@ -303,6 +322,7 @@ class Observable{
         if(this.calculate){
             throw new TypeError("Cannot set the value of an observable that has a calculate method, since that implies that this observable is not a root observable.");
         }
+        if(this.equals ? this.equals(this.value, value) : this.value === value) return;
         this.value = value;
         if(this.mode === 1){
             this.publish(updateID ?? {/* Look ma, I'm a UUID! */});
