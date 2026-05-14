@@ -612,6 +612,8 @@ class Click_Input extends Input{
  * - Also, this class does not to be extended.
  */
 class Output{
+    /** The HTML set during the last frame. */
+    lastHTML = "";
     /**
      * Setup an observable to automatically output to an element.
      * @param {Observable} o sets `output.o`;
@@ -631,7 +633,11 @@ class Output{
      * @param {Empty} [updateID] the UUID used to prevent the same observable from being updated twice; everyone's favorite parameter, right?
      */
     update(updateID){
-        this.el.innerHTML = this.o.get(updateID);
+        const currHTML = this.o.get(updateID);
+        if(this.lastHTML !== currHTML){
+            this.lastHTML = currHTML;
+            this.el.innerHTML = currHTML;
+        }
     }
     /**
      * Delete this output. That means removing it, its observable, and its element.
