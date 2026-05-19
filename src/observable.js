@@ -121,10 +121,10 @@ class Observable{
         ) ? o.calculate_args : Observable.NONE;
         this.initialize();
         if(o.publishers){
-            this.subscribe(publishers);
+            this.subscribe(o.publishers);
         }
         if(o.subscribers){
-            this.accept(subscribers);
+            this.accept(o.subscribers);
         }
     }
     initialize(){
@@ -332,55 +332,56 @@ class Observable{
     }
     /** This gets overwritten by observable.initialize. This function is used as a proxy to set up publisher_args before passing it so calculate. When observable.calculate_args = Observable.NONE, this method gets overwritten to be whatever calculate is. @type {(publisher_args: Map | Array | undefined) => any} */
     proxy_calculate(){/* Placeholder. */}
-    [Observable.MSO](){
-        /** @type {Map<Symbol, Observable>} */
-        const o = new Map();
-        for(const [s, p] of this.s_publishers){
-            o.set(s, p);
-        }
-        return this.calculate(o);
-    }
-    [Observable.MNO](){
-        /** @type {Map<string, Observable>} */
-        const o = new Map();
-        for(const p of this.s_publishers.values()){
-            o.set(p.name, p);
-        }
-        return this.calculate(o);
-    }
-    [Observable.MSV](){
-        /** @type {Map<Symbol, any>} */
-        const o = new Map();
-        for(const [s, p] of this.s_publishers){
-            o.set(s, p.value);
-        }
-        return this.calculate(o);
-    }
-    [Observable.MNV](){
-        /** @type {Map<string, any>} */
-        const o = new Map();
-        for(const p of this.s_publishers.values()){
-            o.set(p.name, p.value);
-        }
-        return this.calculate(o);
-    }
-    [Observable.AO](){
-        /** @type {Observable[]} */
-        const o = [];
-        for(const p of this.s_publishers.values()){
-            o.push(p);
-        }
-        return this.calculate(o);
-    }
-    [Observable.AV](){
-        /** @type {any[]} */
-        const o = [];
-        for(const p of this.s_publishers.values()){
-            o.push(p.value);
-        }
-        return this.calculate(o);
-    }
 }
+Observable[Observable.MSO] = function(){
+    /** @type {Map<Symbol, Observable>} */
+    const o = new Map();
+    for(const [s, p] of this.s_publishers){
+        o.set(s, p);
+    }
+    return this.calculate(o);
+}
+Observable[Observable.MNO] = function(){
+    /** @type {Map<string, Observable>} */
+    const o = new Map();
+    for(const p of this.s_publishers.values()){
+        o.set(p.name, p);
+    }
+    return this.calculate(o);
+}
+Observable[Observable.MSV] = function(){
+    /** @type {Map<Symbol, any>} */
+    const o = new Map();
+    for(const [s, p] of this.s_publishers){
+        o.set(s, p.value);
+    }
+    return this.calculate(o);
+}
+Observable[Observable.MNV] = function(){
+    /** @type {Map<string, any>} */
+    const o = new Map();
+    for(const p of this.s_publishers.values()){
+        o.set(p.name, p.value);
+    }
+    return this.calculate(o);
+}
+Observable[Observable.AO] = function(){
+    /** @type {Observable[]} */
+    const o = [];
+    for(const p of this.s_publishers.values()){
+        o.push(p);
+    }
+    return this.calculate(o);
+}
+Observable[Observable.AV] = function(){
+    /** @type {any[]} */
+    const o = [];
+    for(const p of this.s_publishers.values()){
+        o.push(p.value);
+    }
+    return this.calculate(o);
+}
+
 
 /**
  * Class to optimize a graph / list of observables. The observables don't even all need to be connected. Isn't that cool? Yeah, it is really cool.
@@ -542,7 +543,7 @@ class Next_Observable{
         // this line of code looks particularly magical;
         publishers = [...(publishers ?? []), curr];
         /** The next observable. The name could be confused with the name of this class, but this observable is only used internally. @type {Observable} */
-        this.next = App.O("next_" + curr.name, calculate, publishers);
+        this.next = app.O("next_" + curr.name, calculate, publishers);
     }
     /**
      * Delete this next observable. That means removing it and both its observables.
@@ -600,10 +601,12 @@ class Click_Input extends Input{
         super(o, el, app);
         el.addEventListener("click", function(e){
             this.clicked++;
+            this.o.set(this.clicked);
         }.bind(this));
     }
     cleanup(){
         this.clicked = 0;
+        this.o.set(this.clicked);
     }
 }
 
@@ -668,10 +671,6 @@ class App{
         this.curr_t = new Date();
         /** Time difference between frames. The value is in milliseconds, so if the value is 500, that means 0.5 seconds. @type {number} */
         this.dt_n = this.curr_t_p - this.last_t_p;
-        /** Observable for the current time. @type {Observable} */
-        this.now = this.O("now", __, __, this.curr_t);
-        /** Observable for the time difference between frames. The value is in milliseconds, so if the value is 500, that means 0.5 seconds. @type {Observable} */
-        this.dt = this.O("dt", __, __, this.dt_n);
         /** List of inputs, as a set. @type {Map<Symbol, Input>} */
         this.inputs = new Set();
         /** List of outputs, as a set. @type {Map<Symbol, Output>} */
@@ -688,6 +687,10 @@ class App{
         this.todo = undefined;
         /** The optimizer for this app. @type {Optimizer} */
         this.optimizer = new Optimizer();
+        /** Observable for the current time. @type {Observable} */
+        this.now = this.O("now", __, __, this.curr_t);
+        /** Observable for the time difference between frames. The value is in milliseconds, so if the value is 500, that means 0.5 seconds. @type {Observable} */
+        this.dt = this.O("dt", __, __, this.dt_n);
     }
     /**
      * Create a new observable and add it to this app's list of observables.
@@ -710,7 +713,7 @@ class App{
                 this.o_symbols.get(p) :
                 p
             )
-        )).filter(p instanceof Observable);
+        )).filter(p => (p instanceof Observable));
         const o = new Observable({
             name, symbol: s,
             calculate, publishers, value,
@@ -765,7 +768,7 @@ class App{
         const n = new Next_Observable(o, this, calculate, publishers);
         this.next.set(o.symbol, n);
         this.os.set(n.next.symbol, new Debug_Observable(n.next));
-        this.optimizer.add(n.next);
+        this.optimizer.nodes.add(n.next);
     }
     /**
      * Remove an observable from this app.
@@ -812,15 +815,17 @@ class App{
             o.cleanup();
         }
         // sixth, handle debugging;
-        if(this.debug_init){
-            const ul = document.querySelector(".debug");
-            for(const o of this.os.values()){
-                o.initialize(ul);
+        const ul = document.querySelector(".debug");
+        if(ul){
+            if(this.debug_init){
+                for(const o of this.os.values()){
+                    o.initialize(ul);
+                }
             }
-        }
-        if(this.debug){
-            for(const o of this.os.values()){
-                o.update();
+            if(this.debug){
+                for(const o of this.os.values()){
+                    o.update();
+                }
             }
         }
         
