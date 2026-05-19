@@ -666,11 +666,11 @@ class App{
         this.last_t = new Date();
         /** Time of current frame (using `Date`). @type {Date} */
         this.curr_t = new Date();
-        /** Time difference between frames. @type {number} */
+        /** Time difference between frames. The value is in milliseconds, so if the value is 500, that means 0.5 seconds. @type {number} */
         this.dt_n = this.curr_t_p - this.last_t_p;
         /** Observable for the current time. @type {Observable} */
         this.now = this.O("now", __, __, this.curr_t);
-        /** Observable for the time difference between frames. @type {Observable} */
+        /** Observable for the time difference between frames. The value is in milliseconds, so if the value is 500, that means 0.5 seconds. @type {Observable} */
         this.dt = this.O("dt", __, __, this.dt_n);
         /** List of inputs, as a set. @type {Map<Symbol, Input>} */
         this.inputs = new Set();
@@ -754,6 +754,18 @@ class App{
             os.push(this.Output(el, obs));
         }
         return os;
+    }
+    /**
+     * Define a next value for an observable. Every frame, the value of the observable will be updated using this definition.
+     * @param {Observable} o the observable to define a next value for;
+     * @param {Function} [calculate] the function to calculate the next value of the observable;
+     * @param {Observable[]} [publishers] the publishers that are used to calculate the next value of the observable; only direct references are supported;
+     */
+    Next(o, calculate, publishers){
+        const n = new Next_Observable(o, this, calculate, publishers);
+        this.next.set(o.symbol, n);
+        this.os.set(n.next.symbol, new Debug_Observable(n.next));
+        this.optimizer.add(n.next);
     }
     /**
      * Remove an observable from this app.
