@@ -80,10 +80,12 @@ const app_message = document.querySelector(".app_message");
 const toggle_app = function(){
     if(app.frame_id === -1){
         app.start();
+        // app.optimizer.start();
         app_message.innerHTML = "App is currently running."
     }
     else{
         app.stop();
+        // app.optimizer.stop();
         app_message.innerHTML = "App is not running."
     }
 }
@@ -93,6 +95,5 @@ onkeydown = function(e){
     if(e.key !== "t") return;
     toggle_app();
 }
-// app.optimizer.start();
 
 

@@ -415,7 +415,11 @@ class Optimizer{
         const done = new Set();
         /** @type {Set<Observable>} */
         const queue = new Set();
+        const iter_limit = 100;
+        let iter_c = 0;
         do{
+            iter_c++;
+            if(iter_c > iter_limit) break;
             for(const node of this.nodes){
                 // node.mode === 0 should be redundant;
                 if(node.mode === 0 && node.subscribers.reduce((a,b) => a && done.has(b), true)){
@@ -433,6 +437,7 @@ class Optimizer{
                         queue.add(p);
                     }
                 }
+                queue.delete(node);
             }
         } while(queue.size > 0);
         for(const node of this.nodes){
@@ -494,7 +499,7 @@ class Debug_Observable{
     update(){
         if(this.prev !== this.o.mode){
             this.prev = this.o.mode;
-            this.el.innerHTML = getHTML();
+            this.el.innerHTML = this.getHTML();
         }
     }
     /**
@@ -821,6 +826,7 @@ class App{
                 for(const o of this.os.values()){
                     o.initialize(ul);
                 }
+                this.debug_init = false;
             }
             if(this.debug){
                 for(const o of this.os.values()){
