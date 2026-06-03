@@ -219,16 +219,20 @@ function lu(xs){
 }
 
 const max_t = 100;
-const bi = [5n,7n,8n,9n];
-const bi_min = ld([5,7,8,9]);
-const bi_max = lu([5,7,8,9]);
+const bi1 = [5n,7n,9n];
+const bi1_min = ld([5,7,9]);
+const bi1_max = lu([5,7,9]);
+const bi2 = [7n,8n,9n];
+const bi2_min = ld([7,8,9]);
+const bi2_max = lu([7,8,9]);
 /** Find all x, such that x / product of (x's digits) = n. */
 function* find_bi(n){
     let ti = 0;
     let t0 = performance.now(), t1 = performance.now();
-    const log_n = Math.log(Number(n));
+    const log_n = Math.log10(Number(n));
     const log_left = -1 - log_n;
-    const log_right = Math.log(72) - log_n;
+    const log_right1 = Math.log10(3);
+    const log_right2 = Math.log10(36);
     n = BigInt(n);
     const res = new Set();
     function check(p0){
@@ -238,8 +242,10 @@ function* find_bi(n){
         // This has much better performance.
         let temp = x;
         let p1 = 1n;
-        while(temp > 0n){
-            p1 *= temp % 10n;
+        while(temp){
+            const d = temp % 10n;
+            if(!d) return;
+            p1 *= d;
             temp /= 10n;
         }
         if(p0 === p1) res.add(x);
@@ -248,15 +254,35 @@ function* find_bi(n){
     for(let ik = 1; ik < k; ik++){
         /*
         we have 4 usable digits: 5,7,8,9;
-        we need k-1 <= log(digits) + log(n) <= k + log(72);
-        i.e. log(digits) is between (k-1 - log(n)) and (k + log(72) - log(n))
+        we need k-1 <= log(digits) + log(n) <= k + log(36);
+        i.e. log(digits) is between (k-1 - log(n)) and (k + log(36) - log(n))
+        however, 5 and 8 cannot exist together, since 2*5=10, and the 0 would require the product to be 0;
         */
-        const it = choose_with_reps_iter_weighted(
-            4, ik,
-            bi_min, bi_max,
-            ik + log_left, ik + log_right,
+        // first, 5,7,9;
+        const it1 = choose_with_reps_iter_weighted(
+            3, ik,
+            bi1_min, bi1_max,
+            ik + log_left, ik + log_right1,
         );
-        for(const i of it){
+        for(const i of it1){
+            t1 = performance.now();
+            if(t1 - t0 > max_t){
+                ti++;
+                yield ti;
+                t0 = performance.now();
+            }
+            const p0 = i.reduce((a,b) => a*bi1[b], 1n);
+            check(p0);
+            const o9 = i.lastIndexOf(2) > -1;
+            if(o9) check(p0/3n);
+        };
+        // second, 7,8,9;
+        const it2 = choose_with_reps_iter_weighted(
+            3, ik,
+            bi2_min, bi2_max,
+            ik + log_left, ik + log_right2,
+        );
+        for(const i of it2){
             t1 = performance.now();
             if(t1 - t0 > max_t){
                 ti++;
@@ -264,11 +290,11 @@ function* find_bi(n){
                 t0 = performance.now();
             }
             // calculate what x would need to be;
-            const p0 = i.reduce((a,b) => a*bi[b], 1n);
+            const p0 = i.reduce((a,b) => a*bi2[b], 1n);
             check(p0);
             // handle all of the factors of 72; this is why we don't have 2,3,4,6 in the digit list above;
-            const o8 = i.reduce((a,b) => a || b==2, false);
-            const o9 = i.reduce((a,b) => a || b==3, false);
+            const o8 = i.lastIndexOf(1) > -1;
+            const o9 = i.lastIndexOf(2) > -1;
             if(o8) check(p0/2n), check(p0/4n);
             if(o9) check(p0/3n);
             if(o8 && o9) check(p0/6n), check(p0/8n), check(p0/9n), check(p0/12n), check(p0/18n), check(p0/24n), check(p0/36n);
@@ -282,10 +308,10 @@ function* find_bi(n){
 }
 
 let find_n = 2;
-let find_max = 111;
+let find_max = 333;
 let find_it = find_bi(find_n);
 let fid = -1;
-if(0) onclick = function(){
+if(1) onclick = function(){
 if(fid === -1)
 fid = setInterval(function(){
     const res = find_it.next();
