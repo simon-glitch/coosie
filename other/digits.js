@@ -227,7 +227,9 @@ const bi2_min = ld([7,8,9]);
 const bi2_max = lu([7,8,9]);
 /** Find all x, such that x / product of (x's digits) = n. */
 function* find_bi(n){
+    const tfreq = 100;
     let ti = 0;
+    let tj = 0;
     let t0 = performance.now(), t1 = performance.now();
     const log_n = Math.log10(Number(n));
     const log_left = -1 - log_n;
@@ -265,11 +267,15 @@ function* find_bi(n){
             ik + log_left, ik + log_right1,
         );
         for(const i of it1){
-            t1 = performance.now();
-            if(t1 - t0 > max_t){
-                ti++;
-                yield ti;
-                t0 = performance.now();
+            ti++;
+            if(ti === tfreq){
+                ti = 0;
+                t1 = performance.now();
+                if(t1 - t0 > max_t){
+                    tj++;
+                    yield tj;
+                    t0 = performance.now();
+                }
             }
             const p0 = i.reduce((a,b) => a*bi1[b], 1n);
             check(p0);
@@ -283,11 +289,15 @@ function* find_bi(n){
             ik + log_left, ik + log_right2,
         );
         for(const i of it2){
-            t1 = performance.now();
-            if(t1 - t0 > max_t){
-                ti++;
-                yield ti;
-                t0 = performance.now();
+            ti++;
+            if(ti === tfreq){
+                ti = 0;
+                t1 = performance.now();
+                if(t1 - t0 > max_t){
+                    tj++;
+                    yield tj;
+                    t0 = performance.now();
+                }
             }
             // calculate what x would need to be;
             const p0 = i.reduce((a,b) => a*bi2[b], 1n);
