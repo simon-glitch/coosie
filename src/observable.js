@@ -61,6 +61,8 @@ class Observable{
     s_subscribers = new Map();
     /** Indicates no arg should be passed to `observable.calculate`. */
     static NONE = Symbol("Observable.NONE");
+    /** Indicates an Object, set as `this` for `observable.calculate`. `this` maps string names to the observable references. This is the best way to define the observable, because it also passes no args. `this` is only ever once, when `initialize` is called, and the observable references inside it are only created once. */
+    static THIS = Symbol("Observable.NONE");
     /** Indicates a Map, mapping symbols to their observables, should be passed to `observable.calculate`. */
     static MSO = Symbol("Observable.MSO");
     /** Indicates a Map, mapping string names to their observables, should be passed to `observable.calculate`. */
@@ -73,15 +75,8 @@ class Observable{
     static AO = Symbol("Observable.AO");
     /** Indicates an array, of the values of observable, should be passed to `observable.calculate`. */
     static AV = Symbol("Observable.AV");
-    static VALID = new Set([
-        Observable.NONE,
-        Observable.MSO,
-        Observable.MNO,
-        Observable.MSV,
-        Observable.MNV,
-        Observable.AO,
-        Observable.AV,
-    ]);
+    /** Which symbols can be used for `mode`. @type {Set<symbol>} */
+    static VALID = new Set(Object.values(Observable).filter(v => typeof v === "symbol"));
     /** What kinds of `publisher_args` to construct for `observable.calculate`. @type {Symbol} @default Observable.NONE */
     calculate_args = Observable.NONE;
     /**
@@ -138,6 +133,14 @@ class Observable{
         }
         if(this.calculate_args === Observable.NONE){
             this.proxy_calculate = this.calculate;
+        }
+        else if(this.calculate_args === Observable.THIS){
+            const THIS = {[Observable.THIS]: "Magic template dictionary."};
+            for(const p of this.publishers){
+                if(!p.name) continue;
+                THIS[p.name] = p;
+            }
+            this.proxy_calculate = this.calculate.bind(THIS);
         }
         else if(Observable.VALID.has(this.calculate_args)){
             this.proxy_calculate = this[this.calculate_args];
@@ -666,6 +669,19 @@ class App{
     /** Whether we are debugging this frame. */
     debug = true;
     constructor(mspf = 16){
+        // IMPORTANT: do not move the line declaring this.optmizer;
+        /** The optimizer for this app. @type {Optimizer} */
+        this.optimizer = new Optimizer();
+        
+        /** The number of milliseconds between frames. Elements and next observables are updated every frame. @type {number} */
+        this.mspf = mspf;
+        /** List of functions to run at the end of the current frame. These get cleared every frame. This is intended to be a place where you can put callbacks. These are for modifying the app's structure. So you could use a callback to open a menu, or close a menu, or reset a board. @type {Function | undefined} */
+        this.todo = undefined;
+        /** Observable for whether the app is running or not. Use the setter on this observable to pause / start the app. @type {Observable} */
+        this.o_running = new Observable({value: true});
+        /** Observable that pauses/starts the app when `o_running` is updated. Don't mess with this. @type {Observable} */
+        this.o_o_running = new Observable({publishers: [this.o_running], f});
+        
         /** Time of last frame (using `performance.now`). @type {number} */
         this.last_t_p = performance.now();
         /** Time of current frame (using `performance.now`). @type {number} */
@@ -675,7 +691,12 @@ class App{
         /** Time of current frame (using `Date`). @type {Date} */
         this.curr_t = new Date();
         /** Time difference between frames. The value is in milliseconds, so if the value is 500, that means 0.5 seconds. @type {number} */
-        this.dt_n = this.curr_t_p - this.last_t_p;
+        this.n_dt = this.curr_t_p - this.last_t_p;
+        /** Observable for the current time. @type {Observable} */
+        this.o_now = this.O("now", __, __, this.curr_t);
+        /** Observable for the time difference between frames. The value is in milliseconds, so if the value is 500, that means 0.5 seconds. @type {Observable} */
+        this.o_dt = this.O("dt", __, __, this.n_dt);
+        
         /** List of inputs, as a set. @type {Map<Symbol, Input>} */
         this.inputs = new Set();
         /** List of outputs, as a set. @type {Map<Symbol, Output>} */
@@ -686,16 +707,6 @@ class App{
         this.os = new Map();
         /** List of next observables being managed by this app, as a map. The keys are the symbols of the current observables. `Next_Observable` is a wrapper with the observable for the current value, and the observable for the next value. @type {Map<Symbol, Next_Observable>} */
         this.next = new Map();
-        /** The number of milliseconds between frames. Elements and next observables are updated every frame. @type {number} */
-        this.mspf = mspf;
-        /** List of functions to run every at the end of the current frame. These get cleared every frame. This is intended to be a place where you can put callbacks. These are for modifying the app's structure. So you could use a callback to open a menu, or close a menu, or reset a board. @type {Function | undefined} */
-        this.todo = undefined;
-        /** The optimizer for this app. @type {Optimizer} */
-        this.optimizer = new Optimizer();
-        /** Observable for the current time. @type {Observable} */
-        this.now = this.O("now", __, __, this.curr_t);
-        /** Observable for the time difference between frames. The value is in milliseconds, so if the value is 500, that means 0.5 seconds. @type {Observable} */
-        this.dt = this.O("dt", __, __, this.dt_n);
     }
     /**
      * Create a new observable and add it to this app's list of observables.
@@ -846,10 +857,14 @@ class App{
     frame_id = -1;
     /** Start / resume `app.frame` inverval. */
     start(){
+        if(this.o_running.value) return;
+        this.o_running.set(true, this.o_o_running.lastID = {});
         this.frame_id = setInterval(this.frame.bind(this), this.mspf);
     }
     /** Stop / pause `app.frame` inverval. */
     stop(){
+        if(!this.o_running.value) return;
+        this.o_running.set(false, this.o_o_running.lastID = {});
         clearInterval(this.frame_id);
         this.frame_id = -1;
     }
