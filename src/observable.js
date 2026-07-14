@@ -39,6 +39,8 @@ class Observable{
     name = "";
     /** The number of times this observable has been updated during this cycle. */
     update_count = 0;
+    /** Whether any publishers of subscribers were removed from this obserable during this cycle. This is important, because `initialize` needs to be called during `optimizer.cycle`. */
+    had_removals = false;
     /** The cumulated amount of time spent running the calculate method of this observable during this cycle. */
     time_taken = 0;
     /** Only used in `observable`. */
@@ -62,7 +64,7 @@ class Observable{
     /** Indicates no arg should be passed to `observable.calculate`. */
     static NONE = Symbol("Observable.NONE");
     /** Indicates an Object, set as `this` for `observable.calculate`. `this` maps string names to the observable references. This is the best way to define the observable, because it also passes no args. `this` is only ever once, when `initialize` is called, and the observable references inside it are only created once. */
-    static THIS = Symbol("Observable.NONE");
+    static THIS = Symbol("Observable.THIS");
     /** Indicates a Map, mapping symbols to their observables, should be passed to `observable.calculate`. */
     static MSO = Symbol("Observable.MSO");
     /** Indicates a Map, mapping string names to their observables, should be passed to `observable.calculate`. */
@@ -122,7 +124,9 @@ class Observable{
             this.accept(o.subscribers);
         }
     }
+    /** Refresh the arrays of subscribers and publishers for this observable, based on the sets. */
     initialize(){
+        this.had_removals = false;
         this.subscribers = [];
         this.publishers = [];
         for(const s of this.s_subscribers.values()){
@@ -131,6 +135,10 @@ class Observable{
         for(const s of this.s_publishers.values()){
             this.publishers.push(s);
         }
+        this.initialize_calculate();
+    }
+    /** Initialize/refresh the `proxy_calculate` function based on `mode`. */
+    initialize_calculate(){
         if(this.calculate_args === Observable.NONE){
             this.proxy_calculate = this.calculate;
         }
@@ -195,6 +203,7 @@ class Observable{
      * @param {Observable[]} publishers
      */
     unsubscribe(publishers){
+        this.had_removals = true;
         for(const p of publishers){
             this.s_publishers.delete(p.symbol);
             p.s_subscribers.delete(this.symbol);
@@ -211,6 +220,7 @@ class Observable{
      * @param {Observable[]} subscribers
      */
     unaccept(subscribers){
+        this.had_removals = true;
         for(const p of subscribers){
             this.s_subscribers.delete(p.symbol);
             p.s_publishers.delete(this.symbol);
@@ -411,7 +421,7 @@ class Optimizer{
     cycle(){
         /** Handle any removed subscribers / publishers. My idea is handling them here is more efficient that splicing lists every time. */
         for(const node of this.nodes){
-            node.initialize();
+            if(node.had_removals) node.initialize();
         }
         // aggregrate time values towards the horizon;
         /** @type {Set<Observable>} */
@@ -659,6 +669,8 @@ class Output{
         this.el.remove();
     }
 }
+
+// TODO for app: add templates, make it so children elements can be specified;
 
 /**
  * Setup HTML elements so they are connected to observables. Each instance of this class is a "handler", which can use a set interval, and can be paused and resumed.
