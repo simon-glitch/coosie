@@ -57,7 +57,7 @@ class Observable{
     symbol = Symbol("observable.prototype.symbol");
     /** A reference to an empty object. This acts as a UUID to prevent `observable.update` and `observable.publish` from updating the same observable twice in one calculation. @type {Empty} */
     lastID = {};
-    /** The cached value of this observable, as returned by `observable.calculate`. @type {any} */
+    /** The cached value of this observable, as returned by `observable.calculate`. Or if it is a root observable, as its value was set. @type {any} */
     value = 0;
     /** The observables that this observable is subscribed to. @type {Observable[]} */
     publishers = [];
@@ -1101,14 +1101,35 @@ class App{
         /** The optimizer for this app. @type {Optimizer} */
         this.optimizer = new Optimizer();
         
+        /** List of inputs, as a set. @type {Map<Symbol, Input>} */
+        this.inputs = new Set();
+        /** List of outputs, as a set. @type {Map<Symbol, Output>} */
+        this.outputs = new Set();
+        /** Map of observable names to symbols. Duplicate names are not allowed. @type {Map<String, Symbol>} */
+        this.o_symbols = new Map();
+        /** List of observables being managed by this app, as a map. The keys are the symbols of the managed observables. @type {Map<Symbol, Debug_Observable>} */
+        this.os = new Map();
+        /** List of next observables being managed by this app, as a map. The keys are the symbols of the current observables. `Next_Observable` is a wrapper with the observable for the current value, and the observable for the next value. @type {Map<Symbol, Next_Observable>} */
+        this.next = new Map();
+        
         /** The number of milliseconds between frames. Elements and next observables are updated every frame. @type {number} */
         this.mspf = mspf;
         /** List of functions to run at the end of the current frame. These get cleared every frame. This is intended to be a place where you can put callbacks. These are for modifying the app's structure. So you could use a callback to open a menu, or close a menu, or reset a board. @type {Function | undefined} */
         this.todo = undefined;
+        const running = new Observable({name: "running", value: true});
+        const running_h = new Observable({name: "running_h", value: true, publishers: [running], calculate: function(){
+            if(!running.value && running_h.value){
+                frame.stop();
+            }
+            if(running.value && !running_h.value){
+                frame.start();
+            }
+            return running.value;
+        }});
         /** Observable for whether the app is running or not. Use the setter on this observable to pause / start the app. @type {Observable} */
-        this.o_running = new Observable({value: true});
-        /** Observable that pauses/starts the app when `o_running` is updated. Don't mess with this. @type {Observable} */
-        this.o_o_running = new Observable({publishers: [this.o_running], f});
+        this.o_running = running;
+        /** Observable that pauses/start the app when `o_running` is updated. Don't mess with this. @type {Observable} */
+        this.o_running_h = running_h;
         
         /** Time of last frame (using `performance.now`). @type {number} */
         this.last_t_p = performance.now();
@@ -1121,20 +1142,9 @@ class App{
         /** Time difference between frames. The value is in milliseconds, so if the value is 500, that means 0.5 seconds. @type {number} */
         this.n_dt = this.curr_t_p - this.last_t_p;
         /** Observable for the current time. @type {Observable} */
-        this.o_now = this.O("now", __, __, this.curr_t);
+        this.o_now = this.O({name: "now", value: this.curr_t});
         /** Observable for the time difference between frames. The value is in milliseconds, so if the value is 500, that means 0.5 seconds. @type {Observable} */
-        this.o_dt = this.O("dt", __, __, this.n_dt);
-        
-        /** List of inputs, as a set. @type {Map<Symbol, Input>} */
-        this.inputs = new Set();
-        /** List of outputs, as a set. @type {Map<Symbol, Output>} */
-        this.outputs = new Set();
-        /** Map of observable names to symbols. Duplicate names are not allowed. @type {Map<String, Symbol>} */
-        this.o_symbols = new Map();
-        /** List of observables being managed by this app, as a map. The keys are the symbols of the managed observables. @type {Map<Symbol, Debug_Observable>} */
-        this.os = new Map();
-        /** List of next observables being managed by this app, as a map. The keys are the symbols of the current observables. `Next_Observable` is a wrapper with the observable for the current value, and the observable for the next value. @type {Map<Symbol, Next_Observable>} */
-        this.next = new Map();
+        this.o_dt = this.O({name: "dt", value: this.n_dt});
     }
     /**
      * Create a new observable and add it to this app's list of observables.
@@ -1316,19 +1326,3 @@ class App{
         this.debug = false;
     }
 }
-
-const app = new App(100);
-
-// testing time!
-const content = new Content({
-    app,
-    query: ".content",
-    content: {
-        value: "Starting value.",
-        calculate: function(){
-            return app.curr_t;
-        },
-        publishers: app.o_now,
-    },
-});
-
