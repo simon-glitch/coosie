@@ -715,7 +715,7 @@ class Output{
      * @param {Empty} [updateID] the UUID used to prevent the same observable from being updated twice; everyone's favorite parameter, right?
      */
     update(updateID){
-        const currHTML = this.o.get(updateID);
+        const currHTML = "" + this.o.get(updateID);
         if(this.lastHTML !== currHTML){
             this.lastHTML = currHTML;
             this.el.innerHTML = currHTML;
@@ -786,11 +786,11 @@ class Content{
         /** The parent of this Content. @type {Content} */
         this.parent = options.parent;
         /** A bunch of temp variables created during construction that gets deleted afterwards. */
-        const O = {};
+        const O = {app: this.app};
         // items are explicitly set for the sake of consistency;
         O.name = String(options.name ?? "Content_" + (Content.content_count++));
         O.symbol = options.symbol ?? Symbol("Content." + O.name);
-        let element = options.element;
+        O.element = options.element;
         O.query = options.query ? String(options.query) : undefined;
         O.tag = options.tag ? String(options.tag) : undefined;
         /** @type {Content_Options[]} */
@@ -840,7 +840,7 @@ class Content{
                 throw e;
             }
         }
-        this.element = element;
+        this.O.element = element;
         let i = 0;
         // make sure all children have tags;
         for(const child of children){
@@ -858,7 +858,7 @@ class Content{
         /** @type {Set<string | symbol>} */
         const found = new Set();
         let i = 0;
-        function add_o(o){
+        const add_o = (o) => {
             if(!(o.name || o.symbol)) throw new Error(`One of the observables does not have a name or symbol and thus cannot be identified, at index ${i}.`);
             if(o.name){
                 if(found.has(o.name)) throw new Error(`The name ${o.name} is used twice, at index ${i}.`);
@@ -867,7 +867,10 @@ class Content{
                 if(found.has(o.symbol)) throw new Error(`The name ${o.symbol} is used twice, at index ${i}.`);
             }
             found.add(o.name);
-        }
+            // while we're here, let's convert singleton publisher/subscriber to a list of that one item;
+            o.publishers = Content.list(o.publishers);
+            o.subscribers = Content.list(o.subscribers);
+        };
         
         for(const o of observables) add_o(o), i++;
         if(condition) i = "condition", add_o(condition);
@@ -901,7 +904,7 @@ class Content{
         /** A list of all unfound names for subscribers and publishers in this content. We must check to see if we can inherit the listed observables from the parent content object. This is basically a virtual scoping system. @type {Set<string | symbol>} */
         this.unfound = unfound;
         // now check to make sure no invalid names/symbols are used;
-        function check(o){
+        const check = (o) => {
             let ii = 0;
             for(const p of o.publishers){
                 if(!(p instanceof Observable || typeof p === "string" || typeof p === "symbol")){
@@ -922,13 +925,11 @@ class Content{
                     unfound.set(p, `${i}, ${ii}`);
                 }
             }
-        }
+        };
         if(condition) i = "condition", check(condition);
         if(content) i = "content", check(content);
         i = 0;
         for(const o of observables){
-            o.publishers = Content.list(o.publishers);
-            o.subscribers = Content.list(o.subscribers);
             check(o);
             i++
         }
@@ -961,7 +962,7 @@ class Content{
         const all_observables = [];
         /** @type {Observable[]} */
         const res_observables = [];
-        function add_res(o, res){
+        const add_res = (o, res) => {
             o.in_content = true;
             const oo = app.O(o);
             all_observables.push(oo);
@@ -973,7 +974,7 @@ class Content{
             if(o.name) this.o_map.set(o.name, oo);
             if(o.symbol) this.o_map.set(o.symbol, oo);
             return oo;
-        }
+        };
         for(const o of observables){
             add_res(o, true);
         }
@@ -981,7 +982,7 @@ class Content{
             condition.value = true, add_res(condition, false)
         ) : undefined;
         this.O.content = content ? (
-            condition.value = "", add_res(content, false)
+            content.value = "", add_res(content, false)
         ) : undefined;
         
         // populate the lists of publishers and subscribers;
@@ -998,12 +999,15 @@ class Content{
         // initialize the observables, so they won't be broken;
         for(const o of all_observables){
             try{
+                // so each of these functions makes the list have every item twice;
                 if(o.publishers.length > 0){
-                    this.subscribe(o.publishers);
+                    o.subscribe(o.publishers);
                 }
                 if(o.subscribers.length > 0){
-                    this.accept(o.subscribers);
+                    o.accept(o.subscribers);
                 }
+                // then this deletes both copies of the items, and then regerenates the list;
+                // so it is triple redundant;
                 o.initialize();
             }
             catch(e){
@@ -1013,7 +1017,7 @@ class Content{
                 // this would probably also be implemented into the other debug messages that list indices;
                 /** @type {Observable[]} */
                 const cause = e.cause;
-                console.log("Just the names and symbols:", cause.map(o => ({name: o.name, symbol: o.symbol})));
+                if(cause) console.log("Just the names and symbols:", cause?.map?.(o => ({name: o.name, symbol: o.symbol})));
                 throw e;
             }
         }
@@ -1051,19 +1055,20 @@ class Content{
      * Sixth internal function of the constructor.
      */
     init_condition_and_content(){
-        const {app, element, condition, content} = this.O;
+        const {element, app, condition, content} = this.O;
+        console.log(this);
         
         // okay, if you thought that code was crazy was enough, you're wrong; we can't just write code that's not cursed; that would not be okay;
         // i'm even evil enough to put it on the element! clearly i've gone mad!
         /** A cursed object indicating whether `content.element` is hidden or not. Uses the prototype chain to ensure that if element A is hidden, then A's children are hidden too. @type {{value: boolean}} */
         const cursed = {};
         if(this.parent){
-            cursed.__proto__ = this.parent.element.hidden;
+            cursed.__proto__ = this.parent.element.my_hidden;
         }
         else{
             cursed.value = false;
         }
-        this.element.hidden = cursed;
+        element.my_hidden = cursed;
         
         if(condition){
             const o = app.O({
@@ -1116,8 +1121,8 @@ class App{
         this.mspf = mspf;
         /** List of functions to run at the end of the current frame. These get cleared every frame. This is intended to be a place where you can put callbacks. These are for modifying the app's structure. So you could use a callback to open a menu, or close a menu, or reset a board. @type {Function | undefined} */
         this.todo = undefined;
-        const running = new Observable({name: "running", value: true});
-        const running_h = new Observable({name: "running_h", value: true, publishers: [running], calculate: function(){
+        const running = new Observable({name: "running", value: false});
+        const running_h = new Observable({name: "running_h", value: false, publishers: [running], calculate: function(){
             if(!running.value && running_h.value){
                 frame.stop();
             }
@@ -1254,8 +1259,8 @@ class App{
         this.curr_t_p = performance.now();
         this.curr_t = new Date();
         this.dt_n = this.curr_t_p - this.last_t_p;
-        this.now.set(this.curr_t);
-        this.dt.set(this.dt_n);
+        this.o_now.set(this.curr_t);
+        this.o_dt.set(this.dt_n);
         const nextID = {/* Look ma, I'm a UUID! */};
         // second, calculate the next state;
         for(const n of this.next.values()){
@@ -1268,7 +1273,7 @@ class App{
         }
         // fourth, update the UI;
         for(const o of this.outputs.values()){
-            if(o.el.hidden.value) o.update(currID);
+            if(!o.el.my_hidden.value) o.update(currID);
         }
         // fifth, reset/cleanup the inputs;
         for(const o of this.inputs.values()){
@@ -1302,13 +1307,13 @@ class App{
     /** Start / resume `app.frame` inverval. */
     start(){
         if(this.o_running.value) return;
-        this.o_running.set(true, this.o_o_running.lastID = {});
+        this.o_running.set(true, this.o_running_h.lastID = {});
         this.frame_id = setInterval(this.frame.bind(this), this.mspf);
     }
     /** Stop / pause `app.frame` inverval. */
     stop(){
         if(!this.o_running.value) return;
-        this.o_running.set(false, this.o_o_running.lastID = {});
+        this.o_running.set(false, this.o_running_h.lastID = {});
         clearInterval(this.frame_id);
         this.frame_id = -1;
     }
