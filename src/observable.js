@@ -785,7 +785,7 @@ class Content{
         let i = 0;
         // make sure all children have tags;
         for(const child of children){
-            if(!child.name) throw new Error(`One of the children does not have a tag, at index ${i}.`);
+            if(!child.tag) throw new Error(`One of the children does not have a tag, at index ${i}.`);
             i++;
         }
         // map out all the observable names and symbols;
@@ -853,7 +853,7 @@ class Content{
                     throw new TypeError(`Invalid subscriber at index ${i}, ${ii}. Every subscriber must be either a string or symbol (i.e. referencing an observable by name), or an observable (direct lexical reference).`);
                 }
                 ii++;
-                if(!p instanceof Observable && !found.has(p)){
+                if(!(p instanceof Observable) && !found.has(p)){
                     unfound.set(p, `${i}, ${ii}`);
                 }
             }
@@ -883,7 +883,7 @@ class Content{
         }
         if(unfound.size > 0){
             console.log("Unfound observable names/symbols:", unfound);
-            throw new ReferenceError("`The above ${unfound.size} observable names/symbols are not specified in this content or its parent(s).`");
+            throw new ReferenceError(`The above ${unfound.size} observable names/symbols are not specified in this content or its parent(s).`);
         }
         
         // now we can finally create the observables;
