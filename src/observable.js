@@ -778,8 +778,9 @@ class Content{
         const dynamic = Boolean(options.dynamic);
         /** @type {Observable_Options[]} */
         const observables = list(options.observables);
+        /** @type {Content} */
         let parent = options.parent;
-        /** The parent of this Content */
+        /** The parent of this Content. @type {Content} */
         this.parent = parent;
         
         if(!parent){
@@ -913,6 +914,7 @@ class Content{
             }
             parent = parent.parent;
         }
+        
         if(unfound.size > 0){
             console.log("Unfound observable names/symbols:", unfound);
             throw new ReferenceError(`The above ${unfound.size} observable names/symbols are not specified in this content or its parent(s).`);
@@ -1007,15 +1009,29 @@ class Content{
         /** @type {Observable[]} */
         this.observables = res_observables;
         
+        // okay, if you thought that code was crazy was enough, you're wrong; we can't just write code that's not cursed; that would not be okay;
+        // i'm even evil enough to put it on the element! clearly i've gone mad!
+        /** A cursed object indicating whether `content.element` is hidden or not. Uses the prototype chain to ensure that if element A is hidden, then A's children are hidden too. @type {{value: boolean}} */
+        const cursed = {};
+        if(this.parent){
+            cursed.__proto__ = this.parent.element.hidden;
+        }
+        else{
+            cursed.value = false;
+        }
+        this.element.hidden = cursed;
+        
         if(res_condition){
             const o = app.O({
                 calculate: function(){
                     // sneaky little side effect; these are intended to be this easy to setup, believe it or not;
                     if(!res_condition.value && o.value){
                         element.classList.add("hidden");
+                        cursed.value = true;
                     }
                     if(res_condition.value && !o.value){
                         element.classList.remove("hidden");
+                        delete cursed.value;
                     }
                     return res_condition.value;
                 },
@@ -1204,7 +1220,7 @@ class App{
         }
         // fourth, update the UI;
         for(const o of this.outputs.values()){
-            o.update(currID);
+            if(o.el.hidden.value) o.update(currID);
         }
         // fifth, reset/cleanup the inputs;
         for(const o of this.inputs.values()){
