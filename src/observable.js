@@ -757,12 +757,12 @@ class Content{
      * @param {Content_Options} options see `Content_Options` documentation;
      */
     constructor(options){
-        load_options(options);
-        init_element();
-        map_names();
-        create_observables();
-        build();
-        init_condition_and_content();
+        this.load_options(options);
+        this.init_element();
+        this.map_names();
+        this.create_observables();
+        this.build();
+        this.init_condition_and_content();
         // now we create the children;
         for(const child of this.O.children){
             child.parent = this;
@@ -788,7 +788,7 @@ class Content{
         /** A bunch of temp variables created during construction that gets deleted afterwards. */
         const O = {};
         // items are explicitly set for the sake of consistency;
-        O.name = String(options.name ?? "Content_" + (content_count++));
+        O.name = String(options.name ?? "Content_" + (Content.content_count++));
         O.symbol = options.symbol ?? Symbol("Content." + O.name);
         let element = options.element;
         O.query = options.query ? String(options.query) : undefined;
@@ -807,9 +807,10 @@ class Content{
      */
     init_element(){
         const {parent, query, tag, children} = this.O;
+        let {element} = this.O;
         if(!parent){
-            if(!(this.element || query)) throw new Error("Root element must have either element or query specified.");
-            if(this.element && query) throw new Error("Root element cannot have both element and query specified.");
+            if(!(element || query)) throw new Error("Root element must have either element or query specified.");
+            if(element && query) throw new Error("Root element cannot have both element and query specified.");
             if(query){
                 element = document.querySelector(query);
                 if(!element) throw new TypeError(`The query "${query}" did not select an element.`);
@@ -821,8 +822,8 @@ class Content{
         else{
             let created_something_that_was_not_an_element = false;
             try{
-                this.element = document.createElement(tag);
-                if(!(this.element instanceof Element)){
+                element = document.createElement(tag);
+                if(!(element instanceof Element)){
                     created_something_that_was_not_an_element = true;
                     throw new Error("document.createElement created something that was not an element, probably because of the tag you used. Your tag:", tag);
                 }
@@ -832,13 +833,14 @@ class Content{
                 throw e;
             }
             try{
-                parent.element.appendChild(this.element);
+                parent.element.appendChild(element);
             }
             catch(e){
-                console.log("parent.element.appendChild(element) did not work for some reason. parent.element:", parent.element.appendChild, "element:", this.element);
+                console.log("parent.element.appendChild(element) did not work for some reason. parent.element:", parent.element.appendChild, "element:", element);
                 throw e;
             }
         }
+        this.element = element;
         let i = 0;
         // make sure all children have tags;
         for(const child of children){
@@ -857,7 +859,7 @@ class Content{
         const found = new Set();
         let i = 0;
         function add_o(o){
-            if(!o.name || o.symbol) throw new Error(`One of the observables does not have a name or symbol and thus cannot be identified, at index ${i}.`);
+            if(!(o.name || o.symbol)) throw new Error(`One of the observables does not have a name or symbol and thus cannot be identified, at index ${i}.`);
             if(o.name){
                 if(found.has(o.name)) throw new Error(`The name ${o.name} is used twice, at index ${i}.`);
             }
@@ -906,7 +908,7 @@ class Content{
                     throw new TypeError(`Invalid publisher at index ${i}, ${ii}. Every publisher must be either a string or symbol (i.e. referencing an observable by name), or an observable (direct lexical reference).`);
                 }
                 ii++;
-                if(!p instanceof Observable && !found.has(p)){
+                if(!(p instanceof Observable) && !found.has(p)){
                     unfound.set(p, `${i}, ${ii}`);
                 }
             }
@@ -925,8 +927,8 @@ class Content{
         if(content) i = "content", check(content);
         i = 0;
         for(const o of observables){
-            o.publishers = list(o.publishers);
-            o.subscribers = list(o.subscribers);
+            o.publishers = Content.list(o.publishers);
+            o.subscribers = Content.list(o.subscribers);
             check(o);
             i++
         }
@@ -986,11 +988,11 @@ class Content{
         for(const o of all_observables){
             for(let i = 0; i < o.publishers.length; i++){
                 const p = o.publishers[i];
-                if(!(p instanceof Observable)) o.publishers[i] = o_map.get(p);
+                if(!(p instanceof Observable)) o.publishers[i] = this.o_map.get(p);
             }
             for(let i = 0; i < o.subscribers.length; i++){
                 const p = o.subscribers[i];
-                if(!(p instanceof Observable)) o.subscribers[i] = o_map.get(p);
+                if(!(p instanceof Observable)) o.subscribers[i] = this.o_map.get(p);
             }
         }
         // initialize the observables, so they won't be broken;
@@ -1314,5 +1316,7 @@ class App{
         this.debug = false;
     }
 }
+
+// testing time!
 
 
