@@ -105,8 +105,8 @@ class Observable{
         this.name = String(o.name ?? this.name);
         this.mode = Number(Boolean(o.mode ?? this.mode));
         this.value = o.value ?? this.value;
-        this.publishers = [];
-        this.subscribers = [];
+        this.publishers = o.in_content ? o.publishers : [];
+        this.subscribers = o.in_content ? o.subscribers : [];
         this.s_publishers = new Map();
         this.s_subscribers = new Map();
         /**
@@ -147,14 +147,13 @@ class Observable{
     }
     /** Initialize/refresh the `proxy_calculate` function based on `mode`. */
     initialize_calculate(){
-        if(this.calculate_args === Observable.NONE){
+        if(!this.calculate || this.calculate_args === Observable.NONE){
             this.proxy_calculate = this.calculate;
         }
         else if(this.calculate_args === Observable.THIS){
             const THIS = {[Observable.THIS]: "Magic template dictionary."};
             for(const p of this.publishers){
-                if(!p.name) continue;
-                THIS[p.name] = p;
+                if(p.name) THIS[p.name] = p;
             }
             this.proxy_calculate = this.calculate.bind(THIS);
         }
@@ -167,6 +166,8 @@ class Observable{
      * @param {Observable[]} publishers
      */
     subscribe(publishers){
+        console.log("subscribing");
+        console.log(publishers);
         for(const p of publishers){
             if(p.check_subscribe(this.symbol, {/* Look ma, I'm a UUID! */})){
                 throw new ReferenceError("This observable cannot subscribe to itself.", {cause: this.debug_accept(this.symbol, {/* Look ma, I'm a UUID! */})});
@@ -182,6 +183,7 @@ class Observable{
                 }
             }
         }
+        console.log(this.s_publishers)
     }
     /**
      * Accept the list of subscribers. This also causes those subscribers to subscribe to this observable. Note: a subscribing-mode observable cannot accept a publishing-mode observable as a subscriber.
@@ -614,20 +616,18 @@ class Next_Observable{
      * @param {Next_Observable_Options} options see `Next_Observable_Options` documentation;
      */
     constructor(options){
-        const curr = options.current;
-        if(!curr) console.log("???", options);
+        const current = options.current;
         /** The app this next observable is part of. @type {App} */
         this.app = options.app;
         /** The current observable. @type {Observable} */
-        this.current = curr;
+        this.current = current;
         // this line of code looks particularly magical;
-        const publishers = [...(options.publishers ?? []), curr];
+        options.publishers = [...(options.publishers ?? []), current];
         /** The next observable. The name could be confused with the name of this class, but this observable is only used internally. @type {Observable} */
-        this.next = app.O({
-            name: "next_" + curr.name,
-            calculate: options.calculate,
-            publishers,
-        });
+        options.name ??= "next_" + current.name;
+        options.subscribers = [];
+        options.next = undefined;
+        this.next = app.O(options);
     }
     /**
      * Delete this next observable. That means removing it and both its observables.
@@ -863,7 +863,7 @@ class Content{
      * Third internal function of the constructor. Recursively grabs observables from the parent content, putting them in a map from name/symbols to observables.
      */
     map_names(){
-        const {condition, content, observables} = this.O;
+        const {condition, content, s_condition, s_content, observables} = this.O;
         let {parent} = this.O;
         // map out all the observable names and symbols;
         // symbols should be defined lexically outside the JSON, but it's up to you;
@@ -940,6 +940,8 @@ class Content{
         };
         if(condition) i = "condition", check(condition);
         if(content) i = "content", check(content);
+        if(s_condition && !found.has(s_condition)) unfound.set(s_condition, "condition");
+        if(s_content && !found.has(s_content)) unfound.set(s_content, "content");
         i = 0;
         for(const o of observables){
             check(o);
@@ -976,12 +978,14 @@ class Content{
         /** @type {Observable[]} */
         const res_observables = [];
         const add_res = (o, res) => {
+            o.calculate_args ??= Observable.THIS;
             o.publishers = Content.list(o.publishers ?? []);
             o.subscribers = Content.list(o.subscribers ?? []);
             o.in_content = true;
             if(o.next){
-                o.next.in_content = true;
+                o.next.calculate_args ??= Observable.THIS;
                 o.next.publishers = Content.list(o.next.publishers ?? []);
+                o.next.in_content = true;
             }
             const oo = app.O(o);
             all_observables.push(oo);
@@ -1089,13 +1093,13 @@ class Content{
         
         if(s_condition){
             if(!this.o_map.has(s_condition)){
-                throw new ReferenceError(`condition is set "${s_condition}", but that observable is not defined.`);
+                throw new ReferenceError(`condition is set to "${s_condition}", but that observable is not defined.`);
             }
             condition = this.o_map.get(s_condition);
         }
         if(s_content){
             if(!this.o_map.has(s_content)){
-                throw new ReferenceError(`content is set "${s_content}", but that observable is not defined.`);
+                throw new ReferenceError(`content is set to "${s_content}", but that observable is not defined.`);
             }
             content = this.o_map.get(s_content);
         }
@@ -1354,3 +1358,4 @@ class App{
         this.debug = false;
     }
 }
+
