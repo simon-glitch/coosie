@@ -4,14 +4,17 @@ const app = new App(100);
 const content = new Content({
     app,
     query: ".content",
-    content: {
-        name: "my_value",
-        value: "Starting value.",
-        calculate: function(){
-            return app.curr_t;
+    children: [{
+        tag: "p",
+        content: {
+            name: "my_value",
+            value: "Starting value.",
+            calculate: function(){
+                return app.curr_t;
+            },
+            publishers: app.o_now,
         },
-        publishers: app.o_now,
-    },
+    },],
     observables: [
         {name: "cookies",},
         {name: "cookies_t", publishers: "cookies", calculate: function(){

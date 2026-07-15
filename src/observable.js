@@ -770,6 +770,7 @@ class Content{
         this.init_condition_and_content();
         // now we create the children;
         for(const child of this.O.children){
+            child.app = this.app;
             child.parent = this;
             this.children.push(new Content(child));
         }
@@ -791,7 +792,7 @@ class Content{
         /** The parent of this Content. @type {Content} */
         this.parent = options.parent;
         /** A bunch of temp variables created during construction that gets deleted afterwards. */
-        const O = {app: this.app};
+        const O = {app: this.app, parent: this.parent};
         // items are explicitly set for the sake of consistency;
         O.name = String(options.name ?? "Content_" + (Content.content_count++));
         O.symbol = options.symbol ?? Symbol("Content." + O.name);
@@ -858,7 +859,8 @@ class Content{
      * Third internal function of the constructor. Recursively grabs observables from the parent content, putting them in a map from name/symbols to observables.
      */
     map_names(){
-        const {parent, condition, content, observables} = this.O;
+        const {condition, content, observables} = this.O;
+        let {parent} = this.O;
         // map out all the observable names and symbols;
         // symbols should be defined lexically outside the JSON, but it's up to you;
         /** @type {Set<string | symbol>} */
