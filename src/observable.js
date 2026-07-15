@@ -769,8 +769,8 @@ class Content{
         const name = String(options.name ?? "Content_" + (content_count++));
         const symbol = options.symbol ?? Symbol("Content." + name);
         const element = options.element;
-        const tag = options.tag ? String(options.tag) : undefined;
         const query = options.query ? String(options.query) : undefined;
+        const tag = options.tag ? String(options.tag) : undefined;
         /** @type {Content_Options[]} */
         const children = list(options.children);
         const condition = options.condition;
@@ -782,6 +782,38 @@ class Content{
         /** The parent of this Content */
         this.parent = parent;
         
+        if(!parent){
+            if(!(element || query)) throw new Error("Root element must have either element or query specified.");
+            if(element && query) throw new Error("Root element cannot have both element and query specified.");
+            if(query){
+                element = document.querySelector(query);
+                if(!element) throw new TypeError(`The query "${query}" did not select an element.`);
+            }
+            else{
+                if(!(element instanceof Element)) throw new TypeError("options.element is not an actual Element.");
+            }
+        }
+        else{
+            let created_something_that_was_not_an_element = false;
+            try{
+                element = document.createElement(tag);
+                if(!(element instanceof Element)){
+                    created_something_that_was_not_an_element = true;
+                    throw new Error("document.createElement created something that was not an element, probably because of the tag you used. Your tag:", tag);
+                }
+            }
+            catch(e){
+                if(!created_something_that_was_not_an_element) console.log("Looks like document.createElement did not work, perhaps due to the tag being invalid. Your tag:", tag);
+                throw e;
+            }
+            try{
+                parent.element.appendChild(element);
+            }
+            catch(e){
+                console.log("parent.element.appendChild(element) did not work for some reason. parent.element:", parent.element.appendChild, "element:", element);
+                throw e;
+            }
+        }
         let i = 0;
         // make sure all children have tags;
         for(const child of children){
@@ -906,12 +938,17 @@ class Content{
             if(res) res_observables.push(oo);
             if(o.name) o_map.set(o.name, oo);
             if(o.symbol) o_map.set(o.symbol, oo);
+            return oo;
         }
         for(const o of observables){
             add_res(o, true);
         }
-        if(condition) add_res(condition, false);
-        if(content) add_res(content, false);
+        const res_condition = condition ? (
+            condition.value = true, add_res(condition, false)
+        ) : undefined;
+        const res_content = content ? (
+            condition.value = "", add_res(content, false)
+        ) : undefined;
         
         // now we populate the lists of publishers and subscribers;
         for(const o of all_observables){
@@ -969,6 +1006,25 @@ class Content{
         this.dynamic = dynamic;
         /** @type {Observable[]} */
         this.observables = res_observables;
+        
+        if(res_condition){
+            const o = app.O({
+                calculate: function(){
+                    // sneaky little side effect; these are intended to be this easy to setup, believe it or not;
+                    if(!res_condition.value && o.value){
+                        element.classList.add("hidden");
+                    }
+                    if(res_condition.value && !o.value){
+                        element.classList.remove("hidden");
+                    }
+                    return res_condition.value;
+                },
+                value: true,
+            })
+        }
+        if(res_content){
+            app.Output(element, res_content);
+        }
         
         // now we create the children;
         for(const child of children){
