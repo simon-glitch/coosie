@@ -6,6 +6,10 @@
 
 const __ = undefined;
 
+function is_iterable(o){
+    return typeof o?.[Symbol.iterator] === 'function';
+}
+
 /**
  * This is a type for `{ Look ma, I'm a UUID! }`, the empty object.
  * @typedef {Record<string, never>} Empty;
@@ -21,7 +25,8 @@ const __ = undefined;
  * @property {0 | 1} [mode] - the starting `mode` of this observable;
  * @property {Observable[]} [publishers] - a list of publishers this observable should immediately subscribe to;
  * @property {Observable[]} [subscribers] - a list of subscribers this observable should immediately accept;
- * @property {(curr: any, next: any) => bool} [equals] the function used to compare the current value to the next value on publishing observables; if it returns true, the observable will not recursively publish to publishing observables that are subscribed to it; for observables with too few subscribers, this method can actually be bad for performance;
+ * @property {(curr: any, next: any) => bool} [equals] - the function used to compare the current value to the next value on publishing observables; if it returns true, the observable will not recursively publish to publishing observables that are subscribed to it; for observables with too few subscribers, this method can actually be bad for performance;
+ * @property {Next_Observable_Options} [next] - define a next observable for this observable at the same time as defining this observable; see `Next_Observable_Options` for more info; this property is ignore by the `Observable` constrctor and only actually processed by methods in `App`;
  */
 
 /**
@@ -428,29 +433,38 @@ class Optimizer{
         const done = new Set();
         /** @type {Set<Observable>} */
         const queue = new Set();
-        const iter_limit = 100;
-        let iter_c = 0;
+        for(const node of this.nodes){
+            // check for root nodes;
+            if(node.mode === 1 && node.subscribers.length === 0){
+                queue.add(node);
+            }
+            // check for leaf nodes;
+            if(node.mode === 0 && node.publishers.length === 0){
+                queue.add(node);
+            }
+        }
+        // const iter_limit = this.nodes.size + 1;
+        // let iter_c = 0;
         do{
-            iter_c++;
-            if(iter_c > iter_limit) break;
-            for(const node of this.nodes){
-                // node.mode === 0 should be redundant;
+            // iter_c++;
+            // if(iter_c > iter_limit) console.log("oh no! queue has an infinite loop!");
+            for(const node of queue){
                 if(node.mode === 0 && node.subscribers.reduce((a,b) => a && done.has(b), true)){
                     done.add(node);
-                    for(const p of node.publishers){
+                    queue.delete(node);
+                    for(const p of node.publishers) if(p.mode === 0){
                         p.time_taken += node.time_taken;
                         queue.add(p);
                     }
                 }
-                // node.mode === 1 should be redundant;
                 if(node.mode === 1 && node.publishers.reduce((a,b) => a && done.has(b), true)){
                     done.add(node);
-                    for(const p of node.subscribers){
+                    queue.delete(node);
+                    for(const p of node.subscribers) if(p.mode === 1){
                         p.time_taken += node.time_taken;
                         queue.add(p);
                     }
                 }
-                queue.delete(node);
             }
         } while(queue.size > 0);
         for(const node of this.nodes){
@@ -481,7 +495,7 @@ class Optimizer{
             node.update_count = 0;
             node.time_taken = 0;
         }
-        this?.oncycle();
+        this.oncycle?.();
     }
     /** Interval ID for the optimizer. Don't touch. */
     frame_id = -1;
@@ -543,25 +557,31 @@ class Debug_Observable{
 }
 
 /**
+ * @typedef {Object} Next_Observable_Options
+ * @property {Observable} [current] - the observable that this "next observable" defines the next value for;
+ * @property {App} [app] - the app that this next observable is being defined in;
+ * @property {(publisher_args: Map | Array | undefined) => any} calculate the function used to calculate the value of this next observable;
+ * @property {Observable[]} [publishers] - a list of publishers this observable should immediately subscribe to; do NOT put `current` in this list;
+ */
+
+/**
  * Specialized class for linking a current observable to a next observable. The constructor automatially creates the next observable.
  */
 class Next_Observable{
     /**
      * Create a next observable and link it to a current observable.
-     * @param {Observable} curr the current observable to use;
-     * @param {App} app the app the next observable is going in; this is needed for debugging;
-     * @param {Function} [calculate] the function to calculate the next value of the observable (i.e. the value of the next observable); this can use the value of the current observable, but it should not use the value of the next observable; also, make sure to read `.value` directly, instead of using `.get()`; `.get()` is only supposed to be called by `App.frame` directly;
-     * @param {Observable[]} [publishers] a list of observables that the next observable should be subscribed to; list anything here that you will need to use in the `calculate` function;
+     * @param {Next_Observable_Options} options see `Next_Observable_Options` documentation;
      */
-    constructor(curr, app, calculate, publishers){
+    constructor(options){
+        const curr = options.curr;
         /** The app this next observable is part of. @type {App} */
-        this.app = app;
+        this.app = options.app;
         /** The current observable. @type {Observable} */
         this.curr = curr;
         // this line of code looks particularly magical;
-        publishers = [...(publishers ?? []), curr];
+        const publishers = [...(options.publishers ?? []), curr];
         /** The next observable. The name could be confused with the name of this class, but this observable is only used internally. @type {Observable} */
-        this.next = app.O("next_" + curr.name, calculate, publishers);
+        this.next = app.O("next_" + curr.name, options.calculate, publishers);
     }
     /**
      * Delete this next observable. That means removing it and both its observables.
@@ -673,6 +693,198 @@ class Output{
 // TODO for app: add templates, make it so children elements can be specified;
 
 /**
+ * @typedef {Object} Content_Options
+ * @property {App} [app] - the app to place the content in; required, unless you use `app.Content`;
+ * @property {string} [name] - name for this piece of content; might not be useful;
+ * @property {symbol} [symbol] - override for the symbol this content should use; keep in mind, the constructor can generate a generic symbol automatially; the symbol is important and is used to recognize the content;
+ * @property {Element} [element] - (only for root elements) specify the root element directly; `element` or `query` is required for root elements;
+ * @property {string} [query] - (only for root elements) specify the root element using an HTML query (`Document.querySelector`); `element` or `query` is required for root elements;
+ * @property {string} [tag] - (only for child elements) the HTML tag for the element; the element will be dynamically created; `tag` is required for child elements;
+ * @property {Content_Options[]} [children] - list of content objects, each child will be dynamically created;
+ * @property {Observable_Options} [condition] - an observable options object that defines an observable that determines whether this element should be displayed or not; the calculate function should return the boolean for that; the observable should then have appropriate publishers listed;
+ * @property {Observable_Options} [content] - an observable options object that defines an observable that determines the text content of this element; does not work if this element has children, obviously;
+ * @property {boolean} [dynamic] - whether content should be interpreted as a content options object; if true, then when the observable updates, the content will be constructed, which is bad for performance, so you should probably not use this; use children instead;
+ * @property {Observable_Options[]} [observables] - a list of observable options objects; an observable will be created for each of them; this is intended for any intermediate variables in the content; for any observable options object, you can specify a Next_Observable_Options object in its `ntext` property, and a corresponding next observable will be created;
+ * @property {Content} [parent] - the parent content; this is used internally in the constructor to handle recursion;
+ */
+
+class Content{
+    static content_count = 0;
+    /**
+     * Define a piece of content to create in an app.
+     * @param {Content_Options} options see `Content_Options` documentation;
+     * @param {bool} is_child specifies whether to construct a child element rather than constructing a piece of content; used to recursively make content from the JSON tree;
+     */
+    constructor(options, is_child = false){
+        if(typeof options !== "object" || options === null){
+            throw new TypeError("Content options is not specified.");
+        }
+        if(!(options.app instanceof App)){
+            throw new TypeError("options.app is not specified. Consider using app.Content.");
+        }
+        /** @type {App} */
+        const app = options.app;
+        function list(l){
+            return l ? (is_iterable(l) ? l : [l]) : [];
+        }
+        // items are explicitly set for the sake of consistency;
+        const name = String(options.name ?? "Content_" + (content_count++));
+        const symbol = options.symbol ?? Symbol("Content." + name);
+        const element = options.element;
+        const tag = options.tag ? String(options.tag) : undefined;
+        const query = options.query ? String(options.query) : undefined;
+        const children = list(options.children);
+        const condition = options.condition;
+        const content = options.content;
+        const dynamic = Boolean(options.dynamic);
+        const observables = list(options.observables);
+        let parent = options.parent;
+        /** The parent of this Content */
+        this.parent = parent;
+        
+        let i = 0;
+        // make sure all children have tags;
+        for(const child of children){
+            if(!child.name) throw new Error(`One of the children does not have a tag, at index ${i}.`);
+            i++;
+        }
+        // map out all the observable names and symbols;
+        // symbols should be defined lexically outside the JSON, but it's up to you;
+        /** @type {Map<string | symbol, Observable>} */
+        const o_map = new Map();
+        i = 0;
+        function add_o(o){
+            if(!o.name || o.symbol) throw new Error(`One of the observables does not have a name or symbol and thus cannot be identified, at index ${i}.`);
+            if(o.name){
+                if(o_map.has(o.name)) throw new Error(`The name ${o.name} is used twice, at index ${i}.`);
+            }
+            if(o.symbol){
+                if(o_map.has(o.symbol)) throw new Error(`The name ${o.symbol} is used twice, at index ${i}.`);
+            }
+        }
+        
+        for(const o of observables) add_o(o), i++;
+        if(condition) i = "condition", add_o(condition);
+        if(content) i = "content", add_o(content);
+        
+        /*
+        "Simon, what in the world is going on here?!"
+        
+        Imagine if you A, with child B, and B with child C, then the call stack will be Content constructor (A) -> Content constructor (B) -> Content constructor (C).
+        
+        Here is what happens:
+        * First A runs.
+        * Then A throws an error if it's missing anything (only on A's level).
+        * Then B runs.
+        * Then B tells A what it's missing.
+        * Then A tells B what it has.
+        * Then B throws an error if it's missing anything (only on B's level).
+        * Then C runs.
+        * Then C tells B and A (recursive) what it's missing.
+        * Then B and A (recursive) tell C what they have.
+        * Then C throws an error if it's missing anything (only on C's level).
+        * C cleans up and returns.
+        * B cleans up and returns.
+        * A cleanrs up and returns.
+        */
+        
+        /** A map that maps the name or symbol of every observable to the actual observable. Required in order to initialize observables in the content. @type {Map<string | symbol, Observable>} */
+        this.o_map = o_map;
+        /** @type {Set<string | symbol>} */
+        const unfound = new Set();
+        /** A list of all unfound names for subscribers and publishers in this content. We must check to see if we can inherit the listed observables from the parent content object. This is basically a virtual scoping system. @type {Set<string | symbol>} */
+        this.unfound = unfound;
+        // now check to make sure no invalid names/symbols are used;
+        function check(o){
+            let ii = 0;
+            for(const p of o.publishers){
+                if(!(p instanceof Observable || typeof p === "string" || typeof p === "string")){
+                    throw new TypeError(`Invalid publisher at index ${i}, ${ii}. Every publisher must be either a string or symbol (i.e. referencing an observable by name), or an observable (direct lexical reference).`);
+                }
+                ii++;
+                if(!p instanceof Observable && !o_map[p]){
+                    unfound.add(p);
+                }
+            }
+            ii = 0;
+            for(const p of o.subscribers){
+                if(!(p instanceof Observable || typeof p === "string" || typeof p === "symbol")){
+                    throw new TypeError(`Invalid subscriber at index ${i}, ${ii}. Every subscriber must be either a string or symbol (i.e. referencing an observable by name), or an observable (direct lexical reference).`);
+                }
+                ii++;
+                if(!p instanceof Observable && !o_map[p]){
+                    unfound.add(p);
+                }
+            }
+        }
+        if(condition) i = "condition", check(condition);
+        if(content) i = "content", check(content);
+        i = 0;
+        for(const o of observables){
+            o.publishers = list(o.publishers);
+            o.subscribers = list(o.subscribers);
+            check(o);
+            i++
+        }
+        while(parent){
+            for(const s of unfound){
+                if(parent.o_map.has(s)){
+                    this.o_map.set(s, parent.o_map.get(s));
+                    unfound.delete(s);
+                }
+            }
+            parent = parent.parent;
+        }
+        if(unfound.size > 0){
+            console.log("Unfound observable names/symbols:", unfound);
+            throw new ReferenceError("`The above ${unfound.size} observable names/symbols are not specified in this content or its parent(s).`");
+        }
+        
+        // now we can finally create the observables;
+        /** @type {Observable[]} */
+        const res_observables = [];
+        for(const o of observables){
+            for(let i = 0; i < o.publishers.length; i++){
+                const p = o.publishers[i];
+                if(!(p instanceof Observable)) o.publishers[i] = o_map[p];
+            }
+            for(let i = 0; i < o.subscribers.length; i++){
+                const p = o.subscribers[i];
+                if(!(p instanceof Observable)) o.subscribers[i] = o_map[p];
+            }
+            o.safe = true;
+            res_observables.push(app.O(o));
+        }
+        
+        /** @type {App} */
+        this.app = app;
+        /** @type {string} */
+        this.name = name;
+        /** @type {symbol} */
+        this.symbol = symbol;
+        /** @type {Element | undefined} */
+        this.element = element;
+        /** @type {string | undefined} */
+        this.tag = tag;
+        /** @type {string | undefined} */
+        this.query = query;
+        /** @type {Content[]} */
+        this.children = [];
+        /** @type {Observable} */
+        this.condition = condition;
+        /** @type {Observable} */
+        this.content = content;
+        /** @type {Observable} */
+        this.dynamic = dynamic;
+        /** @type {Observable[]} */
+        this.observables = res_observables;
+        
+        // now we create the children;
+        
+    }
+}
+
+/**
  * Setup HTML elements so they are connected to observables. Each instance of this class is a "handler", which can use a set interval, and can be paused and resumed.
  */
 class App{
@@ -722,18 +934,18 @@ class App{
     }
     /**
      * Create a new observable and add it to this app's list of observables.
-     * @param {string} name the name of the observable (required);
-     * @param {Function} [calculate] the function to calculate the value of the observable;
-     * @param {Observable[]} [publishers] the publishers that the observable will have; you can list these by name, by symbol, or by reference;
-     * @param {any} [value] the starting value of the observable;
+     * @param {Observable_Options} options see `Observable_Options` documentation for more info;
      */
-    O(name, calculate, publishers, value){
-        name = String(name);
+    O(options){
+        const name = String(options.name);
+        const calculate = options.calculate;
+        let publishers = options.publishers;
+        const value = options.value;
         if(!name) throw new TypeError("App.O requires a name for the observable.");
         if(this.o_symbols.has(name)) throw new ReferenceError(`The name "${name}" is already in use.`);
         const s = Symbol(`observable.${name}`);
         this.o_symbols.set(name, s);
-        publishers = (publishers ?? []).map(p => (
+        if(!options.safe) publishers = (publishers ?? []).map(p => (
             p instanceof Observable ?
             p :
             this.os.get(
@@ -749,6 +961,8 @@ class App{
         this.o_symbols.set(name, s);
         this.os.set(s, new Debug_Observable(o));
         this.optimizer.nodes.add(o);
+        if(options.next) options.next.current = o,
+        options.next.app = this, App.Next(options.next);
         return o;
     }
     /**
@@ -788,12 +1002,16 @@ class App{
     }
     /**
      * Define a next value for an observable. Every frame, the value of the observable will be updated using this definition.
-     * @param {Observable} o the observable to define a next value for;
-     * @param {Function} [calculate] the function to calculate the next value of the observable;
-     * @param {Observable[]} [publishers] the publishers that are used to calculate the next value of the observable; only direct references are supported;
+     * @param {Next_Observable_Options} options see `Next_Observable_Options` documentation for more info;
      */
-    Next(o, calculate, publishers){
-        const n = new Next_Observable(o, this, calculate, publishers);
+    Next(options){
+        const o = options.o;
+        const calculate = options.calculate;
+        const publishers = options.publishers;
+        const n = new Next_Observable({
+            current: o, app: this,
+            calculate, publishers,
+        });
         this.next.set(o.symbol, n);
         this.os.set(n.next.symbol, new Debug_Observable(n.next));
         this.optimizer.nodes.add(n.next);
