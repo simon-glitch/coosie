@@ -801,8 +801,12 @@ class Content{
         O.tag = options.tag ? String(options.tag) : undefined;
         /** @type {Content_Options[]} */
         O.children = Content.list(options.children);
-        O.condition = options.condition;
-        O.content = options.content;
+        if(typeof options.condition === "string" || typeof options.condition === "symbol")
+            O.s_condition = options.condition;
+        else O.condition = options.condition;
+        if(typeof options.content === "string" || typeof options.content === "symbol")
+            O.s_content = options.content;
+        else O.content = options.content;
         O.dynamic = Boolean(options.dynamic);
         /** @type {Observable_Options[]} */
         O.observables = Content.list(options.observables);
@@ -972,11 +976,16 @@ class Content{
         /** @type {Observable[]} */
         const res_observables = [];
         const add_res = (o, res) => {
+            o.publishers = Content.list(o.publishers ?? []);
+            o.subscribers = Content.list(o.subscribers ?? []);
             o.in_content = true;
+            if(o.next){
+                o.next.in_content = true;
+                o.next.publishers = Content.list(o.next.publishers ?? []);
+            }
             const oo = app.O(o);
             all_observables.push(oo);
             if(o.next){
-                o.next.in_content = true;
                 all_observables.push(app.next.get(oo.symbol).next);
             }
             if(res) res_observables.push(oo);
@@ -994,11 +1003,6 @@ class Content{
             content.value = "", add_res(content, false)
         ) : undefined;
         
-        // ensure there are no undefined leftover;
-        for(const o of all_observables){
-            o.publishers ??= [];
-            o.subscribers ??= [];
-        }
         // populate the lists of publishers and subscribers;
         for(const o of all_observables){
             for(let i = 0; i < o.publishers.length; i++){
@@ -1069,7 +1073,7 @@ class Content{
      * Sixth internal function of the constructor.
      */
     init_condition_and_content(){
-        const {element, app, condition, content} = this.O;
+        let {element, app, condition, content, s_condition, s_content} = this.O;
         
         // okay, if you thought that code was crazy was enough, you're wrong; we can't just write code that's not cursed; that would not be okay;
         // i'm even evil enough to put it on the element! clearly i've gone mad!
@@ -1082,6 +1086,19 @@ class Content{
             cursed.value = false;
         }
         element.my_hidden = cursed;
+        
+        if(s_condition){
+            if(!this.o_map.has(s_condition)){
+                throw new ReferenceError(`condition is set "${s_condition}", but that observable is not defined.`);
+            }
+            condition = this.o_map.get(s_condition);
+        }
+        if(s_content){
+            if(!this.o_map.has(s_content)){
+                throw new ReferenceError(`content is set "${s_content}", but that observable is not defined.`);
+            }
+            content = this.o_map.get(s_content);
+        }
         
         if(condition){
             const o = app.O({

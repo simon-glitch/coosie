@@ -39,15 +39,25 @@ const content = new Content({
         }},
         {name: "time", next: {
             calculate: function(){
-                this.time + 1 * 0.001
+                this.time + this.dt * 0.001
             },
-            publishers: app.dt,
+            publishers: app.o_dt,
         },},
-        {name: "seconds",},
-        {name: "seconds_t",},
-        {name: "time_m",},
-        {name: "minutes",},
-        {name: "hours",},
+        {name: "seconds", publishers: "time", function(){
+            return this.time % 60;
+        }},
+        {name: "seconds_t", publishers: "seconds", function(){
+            return Math.floor(this.seconds);
+        }},
+        {name: "time_m", publishers: ["time", "seconds"], function(){
+            return (this.time - this.seconds) / 60;
+        }},
+        {name: "minutes", publishers: "time_m", function(){
+            return this.time_m % 60;
+        }},
+        {name: "hours", publishers: ["time_m", "minutes"], function(){
+            return (this.time_m - this.minutes) / 60;
+        }},
         {name: "o_b_gc",},
         {name: "o_b_gg",},
         {name: "o_b_t_cps",},
