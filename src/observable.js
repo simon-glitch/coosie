@@ -749,11 +749,32 @@ class Output{
 
 class Content{
     static content_count = 0;
+    static list(l){
+        return l ? (is_iterable(l) ? l : [l]) : [];
+    }
     /**
      * Define a piece of content to create in an app.
      * @param {Content_Options} options see `Content_Options` documentation;
      */
-    constructor(options, is_child = false){
+    constructor(options){
+        load_options(options);
+        init_element();
+        map_names();
+        create_observables();
+        build();
+        init_condition_and_content();
+        // now we create the children;
+        for(const child of this.O.children){
+            child.parent = this;
+            this.children.push(new Content(child));
+        }
+        delete this.O;
+    }
+    /**
+     * First internal function of the constructor.
+     * @param {Content_Options} options see `Content_Options` documentation;
+     */
+    load_options(options){
         if(typeof options !== "object" || options === null){
             throw new TypeError("Content options is not specified.");
         }
@@ -761,31 +782,34 @@ class Content{
             throw new TypeError("options.app is not specified. Consider using app.Content.");
         }
         /** @type {App} */
-        const app = options.app;
-        function list(l){
-            return l ? (is_iterable(l) ? l : [l]) : [];
-        }
-        // items are explicitly set for the sake of consistency;
-        const name = String(options.name ?? "Content_" + (content_count++));
-        const symbol = options.symbol ?? Symbol("Content." + name);
-        const element = options.element;
-        const query = options.query ? String(options.query) : undefined;
-        const tag = options.tag ? String(options.tag) : undefined;
-        /** @type {Content_Options[]} */
-        const children = list(options.children);
-        const condition = options.condition;
-        const content = options.content;
-        const dynamic = Boolean(options.dynamic);
-        /** @type {Observable_Options[]} */
-        const observables = list(options.observables);
-        /** @type {Content} */
-        let parent = options.parent;
+        this.app = options.app;
         /** The parent of this Content. @type {Content} */
-        this.parent = parent;
-        
+        this.parent = options.parent;
+        /** A bunch of temp variables created during construction that gets deleted afterwards. */
+        const O = {};
+        // items are explicitly set for the sake of consistency;
+        O.name = String(options.name ?? "Content_" + (content_count++));
+        O.symbol = options.symbol ?? Symbol("Content." + O.name);
+        let element = options.element;
+        O.query = options.query ? String(options.query) : undefined;
+        O.tag = options.tag ? String(options.tag) : undefined;
+        /** @type {Content_Options[]} */
+        O.children = Content.list(options.children);
+        O.condition = options.condition;
+        O.content = options.content;
+        O.dynamic = Boolean(options.dynamic);
+        /** @type {Observable_Options[]} */
+        O.observables = Content.list(options.observables);
+        this.O = O;
+    }
+    /**
+     * Second internal function of the constructor.
+     */
+    init_element(){
+        const {parent, query, tag, children} = this.O;
         if(!parent){
-            if(!(element || query)) throw new Error("Root element must have either element or query specified.");
-            if(element && query) throw new Error("Root element cannot have both element and query specified.");
+            if(!(this.element || query)) throw new Error("Root element must have either element or query specified.");
+            if(this.element && query) throw new Error("Root element cannot have both element and query specified.");
             if(query){
                 element = document.querySelector(query);
                 if(!element) throw new TypeError(`The query "${query}" did not select an element.`);
@@ -797,8 +821,8 @@ class Content{
         else{
             let created_something_that_was_not_an_element = false;
             try{
-                element = document.createElement(tag);
-                if(!(element instanceof Element)){
+                this.element = document.createElement(tag);
+                if(!(this.element instanceof Element)){
                     created_something_that_was_not_an_element = true;
                     throw new Error("document.createElement created something that was not an element, probably because of the tag you used. Your tag:", tag);
                 }
@@ -808,10 +832,10 @@ class Content{
                 throw e;
             }
             try{
-                parent.element.appendChild(element);
+                parent.element.appendChild(this.element);
             }
             catch(e){
-                console.log("parent.element.appendChild(element) did not work for some reason. parent.element:", parent.element.appendChild, "element:", element);
+                console.log("parent.element.appendChild(element) did not work for some reason. parent.element:", parent.element.appendChild, "element:", this.element);
                 throw e;
             }
         }
@@ -821,11 +845,17 @@ class Content{
             if(!child.tag) throw new Error(`One of the children does not have a tag, at index ${i}.`);
             i++;
         }
+    }
+    /**
+     * Third internal function of the constructor. Recursively grabs observables from the parent content, putting them in a map from name/symbols to observables.
+     */
+    map_names(){
+        const {parent, condition, content, observables} = this.O;
         // map out all the observable names and symbols;
         // symbols should be defined lexically outside the JSON, but it's up to you;
         /** @type {Set<string | symbol>} */
         const found = new Set();
-        i = 0;
+        let i = 0;
         function add_o(o){
             if(!o.name || o.symbol) throw new Error(`One of the observables does not have a name or symbol and thus cannot be identified, at index ${i}.`);
             if(o.name){
@@ -919,40 +949,40 @@ class Content{
             console.log("Unfound observable names/symbols:", unfound);
             throw new ReferenceError(`The above ${unfound.size} observable names/symbols are not specified in this content or its parent(s).`);
         }
-        
-        // now we can finally create the observables;
+    }
+    /**
+     * Fourth internal function of the constructor. Creates the observables for this specific layer of content.
+     */
+    create_observables(){
+        const {app, condition, content, observables} = this.O;
         /** @type {Observable[]} */
         const all_observables = [];
         /** @type {Observable[]} */
         const res_observables = [];
         function add_res(o, res){
             o.in_content = true;
-            if(o.next){
-                o.next.in_content = true;
-                for(let i = 0; i < o.next.publishers.length; i++){
-                    const p = o.next.publishers[i];
-                    if(!(p instanceof Observable)) o.next.publishers[i] = o_map[p];
-                }
-            }
             const oo = app.O(o);
             all_observables.push(oo);
-            if(o.next) all_observables.push(app.next(oo.symbol));
+            if(o.next){
+                o.next.in_content = true;
+                all_observables.push(app.next(oo.symbol));
+            }
             if(res) res_observables.push(oo);
-            if(o.name) o_map.set(o.name, oo);
-            if(o.symbol) o_map.set(o.symbol, oo);
+            if(o.name) this.o_map.set(o.name, oo);
+            if(o.symbol) this.o_map.set(o.symbol, oo);
             return oo;
         }
         for(const o of observables){
             add_res(o, true);
         }
-        const res_condition = condition ? (
+        this.O.condition = condition ? (
             condition.value = true, add_res(condition, false)
         ) : undefined;
-        const res_content = content ? (
+        this.O.content = content ? (
             condition.value = "", add_res(content, false)
         ) : undefined;
         
-        // now we populate the lists of publishers and subscribers;
+        // populate the lists of publishers and subscribers;
         for(const o of all_observables){
             for(let i = 0; i < o.publishers.length; i++){
                 const p = o.publishers[i];
@@ -963,7 +993,7 @@ class Content{
                 if(!(p instanceof Observable)) o.subscribers[i] = o_map.get(p);
             }
         }
-        // then we initialize the observables, so they won't be broken;
+        // initialize the observables, so they won't be broken;
         for(const o of all_observables){
             try{
                 if(o.publishers.length > 0){
@@ -986,28 +1016,40 @@ class Content{
             }
         }
         
+        this.O.res_observables = res_observables;
+    }
+    /**
+     * Fifth internal function of the constructor.
+     */
+    build(){
         /** @type {App} */
-        this.app = app;
+        this.app = this.O.app;
         /** @type {string} */
-        this.name = name;
+        this.name = this.O.name;
         /** @type {symbol} */
-        this.symbol = symbol;
+        this.symbol = this.O.symbol;
         /** @type {Element | undefined} */
-        this.element = element;
+        this.element = this.O.element;
         /** @type {string | undefined} */
-        this.tag = tag;
+        this.tag = this.O.tag;
         /** @type {string | undefined} */
-        this.query = query;
+        this.query = this.O.query;
         /** @type {Content[]} */
         this.children = [];
         /** @type {Observable} */
-        this.condition = condition;
+        this.condition = this.O.condition;
         /** @type {Observable} */
-        this.content = content;
+        this.content = this.O.content;
         /** @type {Observable} */
-        this.dynamic = dynamic;
+        this.dynamic = this.O.dynamic;
         /** @type {Observable[]} */
-        this.observables = res_observables;
+        this.observables = this.O.observables;
+    }
+    /**
+     * Sixth internal function of the constructor.
+     */
+    init_condition_and_content(){
+        const {app, element, condition, content} = this.O;
         
         // okay, if you thought that code was crazy was enough, you're wrong; we can't just write code that's not cursed; that would not be okay;
         // i'm even evil enough to put it on the element! clearly i've gone mad!
@@ -1021,15 +1063,15 @@ class Content{
         }
         this.element.hidden = cursed;
         
-        if(res_condition){
+        if(condition){
             const o = app.O({
                 calculate: function(){
                     // sneaky little side effect; these are intended to be this easy to setup, believe it or not;
-                    if(!res_condition.value && o.value){
+                    if(!condition.value && o.value){
                         element.classList.add("hidden");
                         cursed.value = true;
                     }
-                    if(res_condition.value && !o.value){
+                    if(condition.value && !o.value){
                         element.classList.remove("hidden");
                         delete cursed.value;
                     }
@@ -1038,14 +1080,8 @@ class Content{
                 value: true,
             })
         }
-        if(res_content){
-            app.Output(element, res_content);
-        }
-        
-        // now we create the children;
-        for(const child of children){
-            child.parent = this;
-            this.children.push(new Content(child));
+        if(content){
+            app.Output(element, content);
         }
     }
 }
