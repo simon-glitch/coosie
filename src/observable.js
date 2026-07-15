@@ -27,6 +27,7 @@ function is_iterable(o){
  * @property {Observable[]} [subscribers] - a list of subscribers this observable should immediately accept;
  * @property {(curr: any, next: any) => bool} [equals] - the function used to compare the current value to the next value on publishing observables; if it returns true, the observable will not recursively publish to publishing observables that are subscribed to it; for observables with too few subscribers, this method can actually be bad for performance;
  * @property {Next_Observable_Options} [next] - define a next observable for this observable at the same time as defining this observable; see `Next_Observable_Options` for more info; this property is ignore by the `Observable` constrctor and only actually processed by methods in `App`;
+ * @property {boolean} [in_content] - whether this observable is being created via `Content` or `app.Content`; if it is, it will not be initialized;
  */
 
 /**
@@ -121,12 +122,14 @@ class Observable{
         this.calculate_args = Observable.VALID.has(
             o.calculate_args
         ) ? o.calculate_args : Observable.NONE;
-        this.initialize();
-        if(o.publishers){
-            this.subscribe(o.publishers);
-        }
-        if(o.subscribers){
-            this.accept(o.subscribers);
+        if(!o.in_content){
+            if(o.publishers){
+                this.subscribe(o.publishers);
+            }
+            if(o.subscribers){
+                this.accept(o.subscribers);
+            }
+            this.initialize();
         }
     }
     /** Refresh the arrays of subscribers and publishers for this observable, based on the sets. */
@@ -166,7 +169,7 @@ class Observable{
     subscribe(publishers){
         for(const p of publishers){
             if(p.check_subscribe(this.symbol, {/* Look ma, I'm a UUID! */})){
-                throw new ReferenceError("This observable cannot subscribe to itself.", {cause: this});
+                throw new ReferenceError("This observable cannot subscribe to itself.", {cause: this.debug_accept(this.symbol, {/* Look ma, I'm a UUID! */})});
             }
         }
         for(const p of publishers){
@@ -188,7 +191,7 @@ class Observable{
     accept(subscribers){
         for(const p of subscribers){
             if(this.check_accept(this.symbol, {/* Look ma, I'm a UUID! */})){
-                throw new ReferenceError("This observable cannot subscribe to itself.", {cause: this});
+                throw new ReferenceError("This observable cannot subscribe to itself.", {cause: this.debug_accept(this.symbol, {/* Look ma, I'm a UUID! */})});
             }
         }
         for(const p of subscribers){
@@ -264,6 +267,44 @@ class Observable{
             if(p.lastID === checkID) continue;
             if(p.s_subscribers.has(s)) return true;
             if(p.check_accept(s, checkID)) return true;
+            p.lastID = checkID;
+        }
+        return false;
+    }
+    /**
+     * Internal method to debug an a loop in `observable.subscribe`, where an observable has tried to subscribe to itself.
+     * @param {symbol} s the unique symbol of the observable that is being checked;
+     * @param {Empty} checkID the UUID used for checking;
+     * @returns {Observable[] | boolean} returns false during recursion to find the loop; once it finds the loop, it returns a list of the loop of observables that was found; the first item in the list is trying to subscribe to the last item in the list; if there is only one item, then it is trying to subscribe to itself;
+     */
+    debug_subscribe(s, checkID){
+        for(const p of this.publishers){
+            if(p.lastID === checkID) continue;
+            if(p.s_publishers.has(s)) return [this];
+            const l = p.debug_subscribe(s, checkID);
+            if(l){
+                l.push(this);
+                return l;
+            }
+            p.lastID = checkID;
+        }
+        return false;
+    }
+    /**
+     * Internal method to debug an a loop in `observable.accept`, where an observable has tried to subscribe to itself.
+     * @param {symbol} s the unique symbol of the observable that is being checked;
+     * @param {Empty} checkID the UUID used for checking;
+     * @returns {Observable[]} returns false during recursion to find the loop; once it finds the loop, it returns a list of the loop of observables that was found; the first item in the list is trying to accept the last item in the list as a subscriber; if there is only one item, then it is trying to subscribe to itself;
+     */
+    debug_accept(s, checkID){
+        for(const p of this.subscribers){
+            if(p.lastID === checkID) continue;
+            if(p.s_subscribers.has(s)) return [this];
+            const l = p.debug_accept(s, checkID);
+            if(l){
+                l.push(this);
+                return l;
+            }
             p.lastID = checkID;
         }
         return false;
@@ -561,7 +602,7 @@ class Debug_Observable{
  * @property {Observable} [current] - the observable that this "next observable" defines the next value for;
  * @property {App} [app] - the app that this next observable is being defined in;
  * @property {(publisher_args: Map | Array | undefined) => any} calculate the function used to calculate the value of this next observable;
- * @property {Observable[]} [publishers] - a list of publishers this observable should immediately subscribe to; do NOT put `current` in this list;
+ * @property {Observable[]} [publishers] - a list of publishers this next observable should immediately subscribe to; do NOT put `current` in this list;
  */
 
 /**
@@ -690,8 +731,6 @@ class Output{
     }
 }
 
-// TODO for app: add templates, make it so children elements can be specified;
-
 /**
  * @typedef {Object} Content_Options
  * @property {App} [app] - the app to place the content in; required, unless you use `app.Content`;
@@ -713,7 +752,6 @@ class Content{
     /**
      * Define a piece of content to create in an app.
      * @param {Content_Options} options see `Content_Options` documentation;
-     * @param {bool} is_child specifies whether to construct a child element rather than constructing a piece of content; used to recursively make content from the JSON tree;
      */
     constructor(options, is_child = false){
         if(typeof options !== "object" || options === null){
@@ -733,10 +771,12 @@ class Content{
         const element = options.element;
         const tag = options.tag ? String(options.tag) : undefined;
         const query = options.query ? String(options.query) : undefined;
+        /** @type {Content_Options[]} */
         const children = list(options.children);
         const condition = options.condition;
         const content = options.content;
         const dynamic = Boolean(options.dynamic);
+        /** @type {Observable_Options[]} */
         const observables = list(options.observables);
         let parent = options.parent;
         /** The parent of this Content */
@@ -750,17 +790,18 @@ class Content{
         }
         // map out all the observable names and symbols;
         // symbols should be defined lexically outside the JSON, but it's up to you;
-        /** @type {Map<string | symbol, Observable>} */
-        const o_map = new Map();
+        /** @type {Set<string | symbol>} */
+        const found = new Set();
         i = 0;
         function add_o(o){
             if(!o.name || o.symbol) throw new Error(`One of the observables does not have a name or symbol and thus cannot be identified, at index ${i}.`);
             if(o.name){
-                if(o_map.has(o.name)) throw new Error(`The name ${o.name} is used twice, at index ${i}.`);
+                if(found.has(o.name)) throw new Error(`The name ${o.name} is used twice, at index ${i}.`);
             }
             if(o.symbol){
-                if(o_map.has(o.symbol)) throw new Error(`The name ${o.symbol} is used twice, at index ${i}.`);
+                if(found.has(o.symbol)) throw new Error(`The name ${o.symbol} is used twice, at index ${i}.`);
             }
+            found.add(o.name);
         }
         
         for(const o of observables) add_o(o), i++;
@@ -788,22 +829,22 @@ class Content{
         * A cleanrs up and returns.
         */
         
-        /** A map that maps the name or symbol of every observable to the actual observable. Required in order to initialize observables in the content. @type {Map<string | symbol, Observable>} */
-        this.o_map = o_map;
         /** @type {Set<string | symbol>} */
-        const unfound = new Set();
+        const local = new Set();
+        /** @type {Map<string | symbol, String>} */
+        const unfound = new Map();
         /** A list of all unfound names for subscribers and publishers in this content. We must check to see if we can inherit the listed observables from the parent content object. This is basically a virtual scoping system. @type {Set<string | symbol>} */
         this.unfound = unfound;
         // now check to make sure no invalid names/symbols are used;
         function check(o){
             let ii = 0;
             for(const p of o.publishers){
-                if(!(p instanceof Observable || typeof p === "string" || typeof p === "string")){
+                if(!(p instanceof Observable || typeof p === "string" || typeof p === "symbol")){
                     throw new TypeError(`Invalid publisher at index ${i}, ${ii}. Every publisher must be either a string or symbol (i.e. referencing an observable by name), or an observable (direct lexical reference).`);
                 }
                 ii++;
-                if(!p instanceof Observable && !o_map[p]){
-                    unfound.add(p);
+                if(!p instanceof Observable && !found.has(p)){
+                    unfound.set(p, `${i}, ${ii}`);
                 }
             }
             ii = 0;
@@ -812,8 +853,8 @@ class Content{
                     throw new TypeError(`Invalid subscriber at index ${i}, ${ii}. Every subscriber must be either a string or symbol (i.e. referencing an observable by name), or an observable (direct lexical reference).`);
                 }
                 ii++;
-                if(!p instanceof Observable && !o_map[p]){
-                    unfound.add(p);
+                if(!p instanceof Observable && !found.has(p)){
+                    unfound.set(p, `${i}, ${ii}`);
                 }
             }
         }
@@ -826,10 +867,15 @@ class Content{
             check(o);
             i++
         }
+        /** @type {Map<string | symbol, Observable>} */
+        const o_map = new Map();
+        /** A map that maps the name or symbol of every observable to the actual observable. Required in order to initialize observables in the content. @type {Map<string | symbol, Observable>} */
+        this.o_map = o_map;
+        // good ol backwards recursion - my favorite kind of recursion;
         while(parent){
-            for(const s of unfound){
+            for(const s of unfound.keys()){
                 if(parent.o_map.has(s)){
-                    this.o_map.set(s, parent.o_map.get(s));
+                    o_map.set(s, parent.o_map.get(s));
                     unfound.delete(s);
                 }
             }
@@ -842,18 +888,63 @@ class Content{
         
         // now we can finally create the observables;
         /** @type {Observable[]} */
+        const all_observables = [];
+        /** @type {Observable[]} */
         const res_observables = [];
+        function add_res(o, res){
+            o.in_content = true;
+            if(o.next){
+                o.next.in_content = true;
+                for(let i = 0; i < o.next.publishers.length; i++){
+                    const p = o.next.publishers[i];
+                    if(!(p instanceof Observable)) o.next.publishers[i] = o_map[p];
+                }
+            }
+            const oo = app.O(o);
+            all_observables.push(oo);
+            if(o.next) all_observables.push(app.next(oo.symbol));
+            if(res) res_observables.push(oo);
+            if(o.name) o_map.set(o.name, oo);
+            if(o.symbol) o_map.set(o.symbol, oo);
+        }
         for(const o of observables){
+            add_res(o, true);
+        }
+        if(condition) add_res(condition, false);
+        if(content) add_res(content, false);
+        
+        // now we populate the lists of publishers and subscribers;
+        for(const o of all_observables){
             for(let i = 0; i < o.publishers.length; i++){
                 const p = o.publishers[i];
-                if(!(p instanceof Observable)) o.publishers[i] = o_map[p];
+                if(!(p instanceof Observable)) o.publishers[i] = o_map.get(p);
             }
             for(let i = 0; i < o.subscribers.length; i++){
                 const p = o.subscribers[i];
-                if(!(p instanceof Observable)) o.subscribers[i] = o_map[p];
+                if(!(p instanceof Observable)) o.subscribers[i] = o_map.get(p);
             }
-            o.safe = true;
-            res_observables.push(app.O(o));
+        }
+        // then we initialize the observables, so they won't be broken;
+        for(const o of all_observables){
+            try{
+                if(o.publishers.length > 0){
+                    this.subscribe(o.publishers);
+                }
+                if(o.subscribers.length > 0){
+                    this.accept(o.subscribers);
+                }
+                o.initialize();
+            }
+            catch(e){
+                // TODO: potentially improve error message here,
+                // but that would require adding a call_stack property that is passed too children,
+                // so I can then show a long list of indices;
+                // this would probably also be implemented into the other debug messages that list indices;
+                /** @type {Observable[]} */
+                const cause = e.cause;
+                console.log("Just the names and symbols:", cause.map(o => ({name: o.name, symbol: o.symbol})));
+                throw e;
+            }
         }
         
         /** @type {App} */
@@ -880,7 +971,10 @@ class Content{
         this.observables = res_observables;
         
         // now we create the children;
-        
+        for(const child of children){
+            child.parent = this;
+            this.children.push(new Content(child));
+        }
     }
 }
 
@@ -945,7 +1039,7 @@ class App{
         if(this.o_symbols.has(name)) throw new ReferenceError(`The name "${name}" is already in use.`);
         const s = Symbol(`observable.${name}`);
         this.o_symbols.set(name, s);
-        if(!options.safe) publishers = (publishers ?? []).map(p => (
+        if(!options.in_content) publishers = (publishers ?? []).map(p => (
             p instanceof Observable ?
             p :
             this.os.get(
