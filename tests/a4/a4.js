@@ -77,6 +77,8 @@ const content = new Content({
 
 app.start();
 
+/*
+Template idea:
 App.Template(function Labeled_Item(){return {
     tag: "p",
     children: [
@@ -85,7 +87,6 @@ App.Template(function Labeled_Item(){return {
     ],
 };});
 
-/*
 And then this ends up being the templates object. So you can list a child as {
     template: "Labeled_Item",
     label: "Cookies:\u00A0",
