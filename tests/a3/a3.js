@@ -1,4 +1,4 @@
-/** @import {  } from "../archive/observable_1_beta.js" */
+/** @import {  } from "../../archive/observable_1_beta.js" */
 
 const app = new App();
 /** @type {(obs: Observable) => any} */

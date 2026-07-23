@@ -1,4 +1,4 @@
-/** @import {  } from "../archive/observable_0.js" */
+/** @import {  } from "../../archive/observable_0.js" */
 
 const eh = new Elup();
 /** @type {(obs: Observable) => any} */

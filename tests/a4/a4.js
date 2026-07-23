@@ -16,10 +16,16 @@ const content = new Content({
         },
     },{
         tag: "p",
-        content: "cookies_t",
+        children: [
+            {tag: "span", text: "Cookies:\u00A0",},
+            {tag: "span",content: "cookies_t",},
+        ],
     },{
         tag: "p",
-        content: "dollars_t",
+        children: [
+            {tag: "span", text: "Dollars: $",},
+            {tag: "span", content: "dollars_t",},
+        ],
     },],
     observables: [
         {name: "cookies", value: 0,},
@@ -44,7 +50,7 @@ const content = new Content({
         }},
         {name: "time", next: {
             calculate: function(){
-                this.time.value + this.dt.value * 0.001
+                return this.time.value + this.dt.value * 0.001;
             },
             publishers: app.o_dt,
         },},
@@ -69,5 +75,20 @@ const content = new Content({
     ],
 });
 
-
 app.start();
+
+App.Template(function Labeled_Item(){return {
+    tag: "p",
+    children: [
+        {tag: "span", text: this.label,},
+        {tag: "span", content: this.content,},
+    ],
+};});
+
+/*
+And then this ends up being the templates object. So you can list a child as {
+    template: "Labeled_Item",
+    label: "Cookies:\u00A0",
+    content: "cookies_t",
+}
+*/

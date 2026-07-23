@@ -1,4 +1,4 @@
-Cookie Clicker main.js license:
+Cookie Clicker `main.js` license:
 ----
 All this code is copyright Orteil, 2013-2026.
 	-with some help, advice and fixes by Nicholas Laux, Debugbro, Opti, the folks at Playsaurus, and lots of people on reddit, Discord, and the DashNet forums
@@ -11,9 +11,9 @@ Spoilers ahead.
 https://orteil.dashnet.org
 ----
 
-The comment about ES5 does not apply to this project.
+The comment about ES5 does not apply to this repo/project.
 
-The observable.js library uses the GNU General Public License, version 2 (link: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html).
+The Coosie framework (and the rest of this repo) uses the GNU General Public License, version 2 (link: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html).
 
 The rest of the software uses the same license as Orteil's Cookie Clicker. I couldn't find the exact license, but generally speaking, Orteil is okay with people creating ports of the game, as long as they are not for profit. This project is more or less a port of the game, since it doesn't change any features, and this project is also not for profit, so it should be fair.
 * Additionally, I believe assets, like sounds and images, from Cookie Clicker are under copyright as Ortiel's intellectual property. This project technically does not contain such assets, since it requests those assets from the Dashnet server.
